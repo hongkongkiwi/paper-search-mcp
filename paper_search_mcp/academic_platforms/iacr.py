@@ -247,8 +247,8 @@ class IACRSearcher(PaperSource):
             if not paper or not paper.pdf_url:
                 return f"Error: Could not find PDF URL for paper {paper_id}"
 
-            # Download the PDF
-            pdf_response = requests.get(paper.pdf_url, timeout=30)
+            # Download the PDF using session
+            pdf_response = self.session.get(paper.pdf_url, timeout=30)
             pdf_response.raise_for_status()
 
             # Create download directory if it doesn't exist

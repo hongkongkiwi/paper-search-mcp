@@ -29,6 +29,10 @@ class OpenAlexSearcher:
         Args:
             email: Optional email for API identification (helps with rate limiting)
         """
+        self.session = requests.Session()
+        self.session.headers.update({
+            'User-Agent': 'paper-search-mcp/1.0'
+        })
         if email:
             self.EMAIL_PARAM = f"mailto:{email}"
 
@@ -92,7 +96,7 @@ class OpenAlexSearcher:
             params["fields"] = kwargs["fields"]
 
         try:
-            response = requests.get(url, params=params, timeout=30)
+            response = self.session.get(url, params=params, timeout=30)
             response.raise_for_status()
             data = response.json()
 
@@ -130,7 +134,7 @@ class OpenAlexSearcher:
         params = {"mailto": self.EMAIL_PARAM}
 
         try:
-            response = requests.get(url, params=params, timeout=30)
+            response = self.session.get(url, params=params, timeout=30)
             response.raise_for_status()
             data = response.json()
             return self._parse_work(data)
@@ -155,7 +159,7 @@ class OpenAlexSearcher:
         params = {"mailto": self.EMAIL_PARAM}
 
         try:
-            response = requests.get(url, params=params, timeout=30)
+            response = self.session.get(url, params=params, timeout=30)
             response.raise_for_status()
             data = response.json()
             return self._parse_work(data)
@@ -185,7 +189,7 @@ class OpenAlexSearcher:
         }
 
         try:
-            response = requests.get(url, params=params, timeout=30)
+            response = self.session.get(url, params=params, timeout=30)
             response.raise_for_status()
             data = response.json()
 
@@ -220,7 +224,7 @@ class OpenAlexSearcher:
         }
 
         try:
-            response = requests.get(url, params=params, timeout=30)
+            response = self.session.get(url, params=params, timeout=30)
             response.raise_for_status()
             data = response.json()
 
@@ -259,7 +263,7 @@ class OpenAlexSearcher:
         }
 
         try:
-            response = requests.get(author_url, params=author_params, timeout=30)
+            response = self.session.get(author_url, params=author_params, timeout=30)
             response.raise_for_status()
             author_data = response.json()
 
@@ -287,7 +291,7 @@ class OpenAlexSearcher:
             if "sort" in kwargs:
                 params["sort"] = kwargs["sort"]
 
-            response = requests.get(url, params=params, timeout=30)
+            response = self.session.get(url, params=params, timeout=30)
             response.raise_for_status()
             data = response.json()
 
@@ -324,7 +328,7 @@ class OpenAlexSearcher:
         }
 
         try:
-            response = requests.get(url, params=params, timeout=30)
+            response = self.session.get(url, params=params, timeout=30)
             response.raise_for_status()
             data = response.json()
 
@@ -488,7 +492,7 @@ class OpenAlexSearcher:
 
         try:
             os.makedirs(save_path, exist_ok=True)
-            response = requests.get(pdf_url, timeout=30)
+            response = self.session.get(pdf_url, timeout=30)
             response.raise_for_status()
 
             filename = f"{paper_id.replace('/', '_')}.pdf"

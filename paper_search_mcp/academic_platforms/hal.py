@@ -308,7 +308,7 @@ class HALSearcher:
             {"code": "INRIA", "name": "Institut National de Recherche en Informatique"},
             {"code": "INSMI", "name": "Institut National des Sciences Mathématiques"},
             {"code": "INP", "name": "Institut Polytechnique de Paris"},
-            {"code": "UNIV-PARIS", "name": "Université Paris"),
+            {"code": "UNIV-PARIS", "name": "Université Paris"},
             {"code": "UNIV-LYON", "name": "Université de Lyon"},
             {"code": "UNIV-RENNES", "name": "Université de Rennes"},
             {"code": "UNIV-STRAS", "name": "Université de Strasbourg"},

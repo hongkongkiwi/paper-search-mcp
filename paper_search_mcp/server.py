@@ -34,15 +34,14 @@ pmc_searcher = PMCSearcher()
 scihub_fetcher = SciHubFetcher()
 
 
-# Asynchronous helper to adapt synchronous searchers
-async def async_search(searcher, query: str, max_results: int, **kwargs) -> List[Dict]:
-    async with httpx.AsyncClient() as client:
-        # Assuming searchers use requests internally; we'll call synchronously for now
-        if 'year' in kwargs:
-            papers = searcher.search(query, year=kwargs['year'], max_results=max_results)
-        else:
-            papers = searcher.search(query, max_results=max_results)
-        return [paper.to_dict() for paper in papers]
+# Synchronous helper to adapt synchronous searchers
+def sync_search(searcher, query: str, max_results: int, **kwargs) -> List[Dict]:
+    """Synchronous search wrapper for searchers."""
+    if 'year' in kwargs:
+        papers = searcher.search(query, year=kwargs['year'], max_results=max_results)
+    else:
+        papers = searcher.search(query, max_results=max_results)
+    return [paper.to_dict() for paper in papers]
 
 
 # Tool definitions
@@ -56,7 +55,7 @@ async def search_arxiv(query: str, max_results: int = 10) -> List[Dict]:
     Returns:
         List of paper metadata in dictionary format.
     """
-    papers = await async_search(arxiv_searcher, query, max_results)
+    papers = sync_search(arxiv_searcher, query, max_results)
     return papers if papers else []
 
 
@@ -70,7 +69,7 @@ async def search_pubmed(query: str, max_results: int = 10) -> List[Dict]:
     Returns:
         List of paper metadata in dictionary format.
     """
-    papers = await async_search(pubmed_searcher, query, max_results)
+    papers = sync_search(pubmed_searcher, query, max_results)
     return papers if papers else []
 
 
@@ -84,7 +83,7 @@ async def search_biorxiv(query: str, max_results: int = 10) -> List[Dict]:
     Returns:
         List of paper metadata in dictionary format.
     """
-    papers = await async_search(biorxiv_searcher, query, max_results)
+    papers = sync_search(biorxiv_searcher, query, max_results)
     return papers if papers else []
 
 
@@ -98,7 +97,7 @@ async def search_medrxiv(query: str, max_results: int = 10) -> List[Dict]:
     Returns:
         List of paper metadata in dictionary format.
     """
-    papers = await async_search(medrxiv_searcher, query, max_results)
+    papers = sync_search(medrxiv_searcher, query, max_results)
     return papers if papers else []
 
 
@@ -112,7 +111,7 @@ async def search_google_scholar(query: str, max_results: int = 10) -> List[Dict]
     Returns:
         List of paper metadata in dictionary format.
     """
-    papers = await async_search(google_scholar_searcher, query, max_results)
+    papers = sync_search(google_scholar_searcher, query, max_results)
     return papers if papers else []
 
 
@@ -129,9 +128,8 @@ async def search_iacr(
     Returns:
         List of paper metadata in dictionary format.
     """
-    async with httpx.AsyncClient() as client:
-        papers = iacr_searcher.search(query, max_results, fetch_details)
-        return [paper.to_dict() for paper in papers] if papers else []
+    papers = iacr_searcher.search(query, max_results, fetch_details)
+    return [paper.to_dict() for paper in papers] if papers else []
 
 
 @mcp.tool()
@@ -144,8 +142,7 @@ async def download_arxiv(paper_id: str, save_path: str = "./downloads") -> str:
     Returns:
         Path to the downloaded PDF file.
     """
-    async with httpx.AsyncClient() as client:
-        return arxiv_searcher.download_pdf(paper_id, save_path)
+    return arxiv_searcher.download_pdf(paper_id, save_path)
 
 
 @mcp.tool()
@@ -298,7 +295,7 @@ async def search_semantic(query: str, year: Optional[str] = None, max_results: i
     kwargs = {}
     if year is not None:
         kwargs['year'] = year
-    papers = await async_search(semantic_searcher, query, max_results, **kwargs)
+    papers = sync_search(semantic_searcher, query, max_results, **kwargs)
     return papers if papers else []
 
 
@@ -362,9 +359,8 @@ async def get_semantic_citations(paper_id: str, max_results: int = 20) -> List[D
     Example:
         await get_semantic_citations("5bbfdf2e62f0508c65ba6de9c72fe2066fd98138", 10)
     """
-    async with httpx.AsyncClient() as client:
-        papers = semantic_searcher.get_citations(paper_id, max_results)
-        return [paper.to_dict() for paper in papers] if papers else []
+    papers = semantic_searcher.get_citations(paper_id, max_results)
+    return [paper.to_dict() for paper in papers] if papers else []
 
 
 @mcp.tool()
@@ -381,9 +377,8 @@ async def get_semantic_references(paper_id: str, max_results: int = 20) -> List[
     Example:
         await get_semantic_references("5bbfdf2e62f0508c65ba6de9c72fe2066fd98138", 10)
     """
-    async with httpx.AsyncClient() as client:
-        papers = semantic_searcher.get_references(paper_id, max_results)
-        return [paper.to_dict() for paper in papers] if papers else []
+    papers = semantic_searcher.get_references(paper_id, max_results)
+    return [paper.to_dict() for paper in papers] if papers else []
 
 
 @mcp.tool()
@@ -400,9 +395,8 @@ async def get_semantic_related(paper_id: str, max_results: int = 20) -> List[Dic
     Example:
         await get_semantic_related("5bbfdf2e62f0508c65ba6de9c72fe2066fd98138", 10)
     """
-    async with httpx.AsyncClient() as client:
-        papers = semantic_searcher.get_related_papers(paper_id, max_results)
-        return [paper.to_dict() for paper in papers] if papers else []
+    papers = semantic_searcher.get_related_papers(paper_id, max_results)
+    return [paper.to_dict() for paper in papers] if papers else []
 
 
 @mcp.tool()
@@ -422,9 +416,8 @@ async def search_semantic_by_author(
     Example:
         await search_semantic_by_author("Yann LeCun", 15)
     """
-    async with httpx.AsyncClient() as client:
-        papers = semantic_searcher.search_by_author(author_name, max_results)
-        return [paper.to_dict() for paper in papers] if papers else []
+    papers = semantic_searcher.search_by_author(author_name, max_results)
+    return [paper.to_dict() for paper in papers] if papers else []
 
 
 @mcp.tool()
@@ -456,7 +449,7 @@ async def search_crossref(query: str, max_results: int = 10, **kwargs) -> List[D
         # Search sorted by publication date
         search_crossref("neural networks", 15, sort="published", order="desc")
     """
-    papers = await async_search(crossref_searcher, query, max_results, **kwargs)
+    papers = sync_search(crossref_searcher, query, max_results, **kwargs)
     return papers if papers else []
 
 
@@ -472,9 +465,8 @@ async def get_crossref_paper_by_doi(doi: str) -> Dict:
     Example:
         get_crossref_paper_by_doi("10.1038/nature12373")
     """
-    async with httpx.AsyncClient() as client:
-        paper = crossref_searcher.get_paper_by_doi(doi)
-        return paper.to_dict() if paper else {}
+    paper = crossref_searcher.get_paper_by_doi(doi)
+    return paper.to_dict() if paper else {}
 
 
 @mcp.tool()
@@ -560,7 +552,7 @@ async def search_openalex(
     if 'sort' in kwargs:
         search_kwargs['sort'] = kwargs['sort']
 
-    papers = await async_search(openalex_searcher, query, max_results, **search_kwargs)
+    papers = sync_search(openalex_searcher, query, max_results, **search_kwargs)
     return papers if papers else []
 
 
@@ -577,9 +569,8 @@ async def get_openalex_paper(paper_id: str) -> Dict:
     Example:
         await get_openalex_paper("W3108360596")
     """
-    async with httpx.AsyncClient() as client:
-        paper = openalex_searcher.get_paper_by_id(paper_id)
-        return paper.to_dict() if paper else {}
+    paper = openalex_searcher.get_paper_by_id(paper_id)
+    return paper.to_dict() if paper else {}
 
 
 @mcp.tool()
@@ -595,9 +586,8 @@ async def get_openalex_paper_by_doi(doi: str) -> Dict:
     Example:
         await get_openalex_paper_by_doi("10.1038/nature12373")
     """
-    async with httpx.AsyncClient() as client:
-        paper = openalex_searcher.get_paper_by_doi(doi)
-        return paper.to_dict() if paper else {}
+    paper = openalex_searcher.get_paper_by_doi(doi)
+    return paper.to_dict() if paper else {}
 
 
 @mcp.tool()
@@ -614,9 +604,8 @@ async def get_openalex_citations(paper_id: str, max_results: int = 20) -> List[D
     Example:
         await get_openalex_citations("W3108360596", 10)
     """
-    async with httpx.AsyncClient() as client:
-        papers = openalex_searcher.get_citations(paper_id, max_results)
-        return [paper.to_dict() for paper in papers] if papers else []
+    papers = openalex_searcher.get_citations(paper_id, max_results)
+    return [paper.to_dict() for paper in papers] if papers else []
 
 
 @mcp.tool()
@@ -633,9 +622,8 @@ async def get_openalex_references(paper_id: str, max_results: int = 20) -> List[
     Example:
         await get_openalex_references("W3108360596", 10)
     """
-    async with httpx.AsyncClient() as client:
-        papers = openalex_searcher.get_references(paper_id, max_results)
-        return [paper.to_dict() for paper in papers] if papers else []
+    papers = openalex_searcher.get_references(paper_id, max_results)
+    return [paper.to_dict() for paper in papers] if papers else []
 
 
 @mcp.tool()
@@ -657,9 +645,8 @@ async def search_openalex_by_author(
     Example:
         await search_openalex_by_author("Yann LeCun", 15)
     """
-    async with httpx.AsyncClient() as client:
-        papers = openalex_searcher.search_by_author(author_name, max_results, **kwargs)
-        return [paper.to_dict() for paper in papers] if papers else []
+    papers = openalex_searcher.search_by_author(author_name, max_results, **kwargs)
+    return [paper.to_dict() for paper in papers] if papers else []
 
 
 @mcp.tool()
@@ -676,9 +663,8 @@ async def get_openalex_related(paper_id: str, max_results: int = 20) -> List[Dic
     Example:
         await get_openalex_related("W3108360596", 10)
     """
-    async with httpx.AsyncClient() as client:
-        papers = openalex_searcher.get_related_papers(paper_id, max_results)
-        return [paper.to_dict() for paper in papers] if papers else []
+    papers = openalex_searcher.get_related_papers(paper_id, max_results)
+    return [paper.to_dict() for paper in papers] if papers else []
 
 
 @mcp.tool()
@@ -913,7 +899,7 @@ async def search_pmc(
         # Search with year filter
         await search_pmc("immunotherapy", 15, year="2020-2023")
     """
-    papers = await async_search(pmc_searcher, query, max_results, year=year)
+    papers = sync_search(pmc_searcher, query, max_results, year=year)
     return papers if papers else []
 
 
@@ -930,9 +916,8 @@ async def get_pmc_paper(paper_id: str) -> Dict:
     Example:
         await get_pmc_paper("PMC1234567")
     """
-    async with httpx.AsyncClient() as client:
-        paper = pmc_searcher.get_paper_by_pmcid(paper_id)
-        return paper.to_dict() if paper else {}
+    paper = pmc_searcher.get_paper_by_pmcid(paper_id)
+    return paper.to_dict() if paper else {}
 
 
 @mcp.tool()
@@ -973,5 +958,11 @@ async def read_pmc_paper(paper_id: str, save_path: str = "./downloads") -> str:
         return ""
 
 
-if __name__ == "__main__":
+
+def main():
+    """Entry point for uvx and CLI execution."""
     mcp.run(transport="stdio")
+
+
+if __name__ == "__main__":
+    main()

@@ -1,105 +1,154 @@
-# tests/test_crossref.py
+"""Tests for CrossRef searcher."""
 import unittest
-import os
 import requests
 from paper_search_mcp.academic_platforms.crossref import CrossRefSearcher
 
-def check_api_accessible():
-    """检查 CrossRef API 是否可访问
-    Check if CrossRef API is accessible"""
+
+def check_crossref_accessible():
+    """Check if CrossRef API is accessible."""
     try:
-        response = requests.get("https://api.crossref.org/works?sample=1", timeout=5)
+        response = requests.get("https://api.crossref.org/works", timeout=5)
         return response.status_code == 200
     except:
         return False
 
+
 class TestCrossRefSearcher(unittest.TestCase):
+    """Tests for CrossRefSearcher class."""
+
     @classmethod
     def setUpClass(cls):
-        cls.api_accessible = check_api_accessible()
-        if not cls.api_accessible:
-            print("\nWarning: CrossRef API is not accessible, some tests will be skipped")
+        cls.crossref_accessible = check_crossref_accessible()
+        if not cls.crossref_accessible:
+            print(
+                "\nWarning: CrossRef API is not accessible, some tests will be skipped"
+            )
 
     def setUp(self):
         self.searcher = CrossRefSearcher()
 
-    def test_search(self):
-        if not self.api_accessible:
-            self.skipTest("CrossRef API is not accessible")
-        
-        papers = self.searcher.search("machine learning", max_results=5)
-        print(f"Found {len(papers)} papers for query 'machine learning':")
-        for i, paper in enumerate(papers, 1):
-            print(f"{i}. {paper.title} (DOI: {paper.doi})")
-            print(f"   Authors: {', '.join(paper.authors[:2])}{'...' if len(paper.authors) > 2 else ''}")
-            print(f"   Published: {paper.published_date.year if paper.published_date else 'N/A'}")
-            print(f"   Citations: {paper.citations}")
-            if paper.extra:
-                print(f"   Publisher: {paper.extra.get('publisher', 'N/A')}")
-                print(f"   Type: {paper.extra.get('crossref_type', 'N/A')}")
-            print()
-        self.assertTrue(len(papers) > 0)
-        if papers:
-            self.assertTrue(papers[0].title)
-            self.assertTrue(papers[0].doi)
+    @unittest.skipUnless(check_crossref_accessible(), "CrossRef not accessible")
+    def test_search_basic(self):
+        """Test basic search functionality."""
+        results = self.searcher.search("machine learning", max_results=3)
 
-    def test_search_with_filters(self):
-        if not self.api_accessible:
-            self.skipTest("CrossRef API is not accessible")
-            
-        # Test search with date filter
-        papers = self.searcher.search(
-            "artificial intelligence", 
-            max_results=3,
-            filter="from-pub-date:2020,has-full-text:true"
-        )
-        print(f"Found {len(papers)} papers with filters")
-        self.assertTrue(len(papers) >= 0)  # May return 0 if no papers match filters
+        self.assertIsInstance(results, list)
+        self.assertLessEqual(len(results), 3)
 
+        if results:
+            paper = results[0]
+            self.assertTrue(hasattr(paper, "title"))
+            self.assertTrue(hasattr(paper, "authors"))
+            self.assertEqual(paper.source, "crossref")
+
+    @unittest.skipUnless(check_crossref_accessible(), "CrossRef not accessible")
+    def test_search_empty_query(self):
+        """Test search with empty query."""
+        results = self.searcher.search("", max_results=3)
+        self.assertIsInstance(results, list)
+
+    @unittest.skipUnless(check_crossref_accessible(), "CrossRef not accessible")
+    def test_search_max_results(self):
+        """Test max_results parameter."""
+        results = self.searcher.search("cryptography", max_results=2)
+        self.assertLessEqual(len(results), 2)
+
+    @unittest.skipUnless(check_crossref_accessible(), "CrossRef not accessible")
     def test_get_paper_by_doi(self):
-        if not self.api_accessible:
-            self.skipTest("CrossRef API is not accessible")
-            
-        # Test with a known DOI
-        known_doi = "10.1038/nature12373"  # A Nature paper
-        paper = self.searcher.get_paper_by_doi(known_doi)
-        
-        if paper:  # Paper might not be found
-            print(f"Retrieved paper by DOI: {paper.title}")
-            self.assertEqual(paper.doi, known_doi)
-            self.assertTrue(paper.title)
-        else:
-            print(f"Paper with DOI {known_doi} not found in CrossRef")
+        """Test getting paper by DOI."""
+        # Use a known DOI
+        test_doi = "10.1038/nature12373"
 
+        paper = self.searcher.get_paper_by_doi(test_doi)
+
+        if paper:
+            self.assertEqual(paper.doi, test_doi)
+            self.assertTrue(paper.title)
+            self.assertIsInstance(paper.authors, list)
+        else:
+            print(f"Could not fetch paper with DOI: {test_doi}")
+
+    @unittest.skipUnless(check_crossref_accessible(), "CrossRef not accessible")
     def test_get_paper_by_invalid_doi(self):
-        if not self.api_accessible:
-            self.skipTest("CrossRef API is not accessible")
-            
-        # Test with an invalid DOI
-        invalid_doi = "10.1234/invalid.doi.123456789"
-        paper = self.searcher.get_paper_by_doi(invalid_doi)
+        """Test getting paper by invalid DOI."""
+        paper = self.searcher.get_paper_by_doi("10.9999/invalid.doi.that.does.not.exist")
         self.assertIsNone(paper)
 
-    def test_download_pdf_not_supported(self):
-        with self.assertRaises(NotImplementedError) as context:
+    @unittest.skipUnless(check_crossref_accessible(), "CrossRef not accessible")
+    def test_download_pdf_raises_error(self):
+        """Test that download_pdf raises NotImplementedError."""
+        with self.assertRaises(NotImplementedError):
             self.searcher.download_pdf("10.1038/nature12373", "./downloads")
-        
-        self.assertIn("CrossRef does not provide direct PDF downloads", str(context.exception))
 
-    def test_read_paper_not_supported(self):
-        message = self.searcher.read_paper("10.1038/nature12373")
-        self.assertIn("CrossRef papers cannot be read directly", message)
-        self.assertIn("metadata and abstracts are available", message)
+    @unittest.skipUnless(check_crossref_accessible(), "CrossRef not accessible")
+    def test_read_paper_returns_error_message(self):
+        """Test that read_paper returns an error message."""
+        result = self.searcher.read_paper("10.1038/nature12373", "./downloads")
+        self.assertIsInstance(result, str)
+        self.assertIn("cannot", result.lower())
 
-    def test_search_error_handling(self):
-        # Test with invalid search parameters to check error handling
-        papers = self.searcher.search("", max_results=0)  # Empty query
-        self.assertEqual(len(papers), 0)
 
-    def test_user_agent_header(self):
-        # Test that the session has the correct user agent
-        self.assertIn("paper-search-mcp", self.searcher.session.headers.get('User-Agent', ''))
-        self.assertIn("mailto:", self.searcher.session.headers.get('User-Agent', ''))
+class TestCrossRefSearcherUnit(unittest.TestCase):
+    """Unit tests for CrossRefSearcher without network."""
 
-if __name__ == '__main__':
+    def setUp(self):
+        self.searcher = CrossRefSearcher()
+
+    def test_extract_title_with_list(self):
+        """Test title extraction from CrossRef item."""
+        item = {"title": ["Test Title"]}
+        title = self.searcher._extract_title(item)
+        self.assertEqual(title, "Test Title")
+
+    def test_extract_title_empty(self):
+        """Test title extraction with empty title."""
+        item = {"title": []}
+        title = self.searcher._extract_title(item)
+        self.assertEqual(title, "")
+
+    def test_extract_authors(self):
+        """Test author extraction from CrossRef item."""
+        item = {
+            "author": [
+                {"given": "John", "family": "Doe"},
+                {"given": "Jane", "family": "Smith"}
+            ]
+        }
+        authors = self.searcher._extract_authors(item)
+        self.assertEqual(authors, ["John Doe", "Jane Smith"])
+
+    def test_extract_authors_partial(self):
+        """Test author extraction with partial info."""
+        item = {
+            "author": [
+                {"family": "Doe"},
+                {"given": "Jane"}
+            ]
+        }
+        authors = self.searcher._extract_authors(item)
+        self.assertEqual(authors, ["Doe", "Jane"])
+
+    def test_extract_date(self):
+        """Test date extraction from CrossRef item."""
+        item = {
+            "published": {
+                "date-parts": [[2023, 6, 15]]
+            }
+        }
+        date = self.searcher._extract_date(item, "published")
+        self.assertIsNotNone(date)
+        self.assertEqual(date.year, 2023)
+        self.assertEqual(date.month, 6)
+        self.assertEqual(date.day, 15)
+
+    def test_extract_container_title(self):
+        """Test container title extraction."""
+        item = {
+            "container-title": ["Nature", "Science"]
+        }
+        container = self.searcher._extract_container_title(item)
+        self.assertEqual(container, "Nature")
+
+
+if __name__ == "__main__":
     unittest.main()

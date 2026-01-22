@@ -322,7 +322,7 @@ class PMCSearcher:
             response = self.session.get(fetch_url, params=params, timeout=30)
             response.raise_for_status()
 
-            return response.text.decode('utf-8')
+            return response.text
 
         except Exception as e:
             logger.error(f"Error fetching full text XML for {paper_id}: {e}")

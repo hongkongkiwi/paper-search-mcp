@@ -1,6 +1,6 @@
 # Paper Search MCP
 
-A Model Context Protocol (MCP) server for searching and downloading academic papers from multiple sources, including arXiv, PubMed, bioRxiv, and Sci-Hub (optional). Designed for seamless integration with large language models like Claude Desktop.
+A Model Context Protocol (MCP) server for searching and downloading academic papers from multiple sources, including arXiv, PubMed, Semantic Scholar, OpenAlex, and more. Designed for seamless integration with large language models like Claude Desktop.
 
 ![PyPI](https://img.shields.io/pypi/v/paper-search-mcp.svg) ![License](https://img.shields.io/badge/license-MIT-blue.svg) ![Python](https://img.shields.io/badge/python-3.10+-blue.svg)
 [![smithery badge](https://smithery.ai/badge/@openags/paper-search-mcp)](https://smithery.ai/server/@openags/paper-search-mcp)
@@ -33,9 +33,25 @@ A Model Context Protocol (MCP) server for searching and downloading academic pap
 
 ## Features
 
-- **Multi-Source Support**: Search and download papers from arXiv, PubMed, bioRxiv, medRxiv, Google Scholar, IACR ePrint Archive, Semantic Scholar.
+- **Multi-Source Support**: Search and download papers from:
+  - **arXiv** - Preprint papers in physics, math, computer science, and more
+  - **PubMed** - Biomedical and life sciences literature
+  - **bioRxiv** - Preprints in biology and life sciences
+  - **medRxiv** - Preprints in medicine and health sciences
+  - **Semantic Scholar** - AI-powered academic search with citations and references
+  - **OpenAlex** - Open index of scholarly papers with rich metadata
+  - **CrossRef** - DOI-based metadata search
+  - **IACR ePrint Archive** - Cryptography and security papers
+  - **PubMed Central (PMC)** - Full-text biomedical papers
+  - **HAL** - French open archive for multidisciplinary research
+  - **SSRN** - Social sciences research network
+  - **DBLP** - Computer science bibliography
+  - **Google Scholar** - Web-based academic search (PDF download via Sci-Hub)
 - **Standardized Output**: Papers are returned in a consistent dictionary format via the `Paper` class.
-- **Asynchronous Tools**: Efficiently handles network requests using `httpx`.
+- **PDF Download**: Download papers directly to local storage.
+- **Paper Reading**: Extract and read text from downloaded PDFs.
+- **Citation Tracking**: Get citations and references for papers (Semantic Scholar, OpenAlex).
+- **Deduplication**: Built-in tools to remove duplicate papers.
 - **MCP Integration**: Compatible with MCP clients for LLM context enhancement.
 - **Extensible Design**: Easily add new academic platforms by extending the `academic_platforms` module.
 
@@ -43,7 +59,38 @@ A Model Context Protocol (MCP) server for searching and downloading academic pap
 
 ## Installation
 
-`paper-search-mcp` can be installed using `uv` or `pip`. Below are two approaches: a quick start for immediate use and a detailed setup for development.
+`paper-search-mcp` can be installed using `uv`, `uvx`, or `pip`. Below are several approaches for different use cases.
+
+### Quick Install with uvx (Recommended)
+
+The easiest way to run paper-search-mcp is using `uvx` with your GitHub repository:
+
+```bash
+# Run directly from GitHub
+uvx --from gh:hongkongkiwi/paper-search-mcp paper-search-mcp
+```
+
+**Claude Desktop Configuration with uvx:**
+
+Add this to `~/Library/Application Support/Claude/claude_desktop_config.json` (Mac) or `%APPDATA%\Claude\claude_desktop_config.json` (Windows):
+
+```json
+{
+  "mcpServers": {
+    "paper_search_server": {
+      "command": "uvx",
+      "args": [
+        "--from",
+        "gh:hongkongkiwi/paper-search-mcp",
+        "paper-search-mcp"
+      ],
+      "env": {
+        "SEMANTIC_SCHOLAR_API_KEY": ""
+      }
+    }
+  }
+}
+```
 
 ### Installing via Smithery
 
@@ -53,18 +100,19 @@ To install paper-search-mcp for Claude Desktop automatically via [Smithery](http
 npx -y @smithery/cli install @openags/paper-search-mcp --client claude
 ```
 
-### Quick Start
+### Local Installation with uv
 
-For users who want to quickly run the server:
+For local development or to install from source:
 
-1. **Install Package**:
+1. **Clone and Install**:
 
    ```bash
-   uv add paper-search-mcp
+   git clone https://github.com/hongkongkiwi/paper-search-mcp.git
+   cd paper-search-mcp
+   uv sync
    ```
 
-2. **Configure Claude Desktop**:
-   Add this configuration to `~/Library/Application Support/Claude/claude_desktop_config.json` (Mac) or `%APPDATA%\Claude\claude_desktop_config.json` (Windows):
+2. **Configure Claude Desktop** (for local development):
    ```json
    {
      "mcpServers": {
@@ -73,18 +121,27 @@ For users who want to quickly run the server:
          "args": [
            "run",
            "--directory",
-           "/path/to/your/paper-search-mcp",
-           "-m",
-           "paper_search_mcp.server"
+           "/path/to/paper-search-mcp",
+           "paper-search-mcp"
          ],
          "env": {
-           "SEMANTIC_SCHOLAR_API_KEY": "" // Optional: For enhanced Semantic Scholar features
+           "SEMANTIC_SCHOLAR_API_KEY": ""
          }
        }
      }
    }
    ```
-   > Note: Replace `/path/to/your/paper-search-mcp` with your actual installation path.
+
+### Pip Installation
+
+```bash
+pip install paper-search-mcp
+```
+
+Then run with:
+```bash
+paper-search-mcp
+```
 
 ### For Development
 
@@ -122,20 +179,21 @@ For developers who want to modify the code or contribute:
 We welcome contributions! Here's how to get started:
 
 1. **Fork the Repository**:
-   Click "Fork" on GitHub.
+   Click "Fork" on GitHub at https://github.com/hongkongkiwi/paper-search-mcp
 
 2. **Clone and Set Up**:
 
    ```bash
    git clone https://github.com/yourusername/paper-search-mcp.git
    cd paper-search-mcp
-   pip install -e ".[dev]"  # Install dev dependencies (if added to pyproject.toml)
+   uv sync
    ```
 
 3. **Make Changes**:
 
    - Add new platforms in `academic_platforms/`.
    - Update tests in `tests/`.
+   - Run tests: `uv run pytest tests/`
 
 4. **Submit a Pull Request**:
    Push changes and create a PR on GitHub.
@@ -146,28 +204,34 @@ We welcome contributions! Here's how to get started:
 
 <img src="docs\images\demo.png" alt="Demo" width="800">
 
-## TODO
+## Supported Academic Platforms
 
-### Planned Academic Platforms
+### Completed Platforms
 
-- [√] arXiv
-- [√] PubMed
-- [√] bioRxiv
-- [√] medRxiv
-- [√] Google Scholar
-- [√] IACR ePrint Archive
-- [√] Semantic Scholar
-- [ ] PubMed Central (PMC)
-- [ ] Science Direct
-- [ ] Springer Link
-- [ ] IEEE Xplore
-- [ ] ACM Digital Library
-- [ ] Web of Science
-- [ ] Scopus
-- [ ] JSTOR
-- [ ] ResearchGate
-- [ ] CORE
-- [ ] Microsoft Academic
+| Platform | Status | Search | Download | Notes |
+|----------|--------|--------|----------|-------|
+| arXiv | Done | Yes | Yes | Preprint server |
+| PubMed | Done | Yes | No | Abstracts only |
+| bioRxiv | Done | Yes | Yes | Biology preprints |
+| medRxiv | Done | Yes | Yes | Medicine preprints |
+| Semantic Scholar | Done | Yes | Yes | AI-powered, citations |
+| OpenAlex | Done | Yes | Yes | Rich metadata |
+| CrossRef | Done | Yes | No | DOI-based |
+| IACR ePrint | Done | Yes | Yes | Cryptography |
+| PMC | Done | Yes | Yes | Full-text biomedical |
+| HAL | Done | Yes | Yes | French open archive |
+| SSRN | Done | Yes | Yes | Social sciences |
+| DBLP | Done | Yes | No | CS bibliography |
+| Google Scholar | Done | Yes | No | Web-based |
+
+### Future Platforms
+
+- Science Direct
+- Springer Link
+- IEEE Xplore
+- ACM Digital Library
+- JSTOR
+- ResearchGate
 
 ---
 

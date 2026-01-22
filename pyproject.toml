@@ -11,6 +11,7 @@ authors = [
 description = "A MCP server for searching and downloading academic papers from multiple sources."
 readme = "README.md"
 requires-python = ">=3.10"
+license = { text = "MIT" }
 
 dependencies = [
     "requests",
@@ -22,6 +23,14 @@ dependencies = [
     "lxml>=4.9.0", # Better HTML parser for BeautifulSoup
     "httpx[socks]>=0.28.1",
 ]
+
+[project.scripts]
+paper-search-mcp = "paper_search_mcp.server:main"
+
+[project.urls]
+Homepage = "https://github.com/hongkongkiwi/paper-search-mcp"
+Repository = "https://github.com/hongkongkiwi/paper-search-mcp"
+Issues = "https://github.com/hongkongkiwi/paper-search-mcp/issues"
 
 [tool.hatch.build.targets.wheel]
 packages = ["paper_search_mcp"]
