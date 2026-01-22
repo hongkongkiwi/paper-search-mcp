@@ -11,8 +11,8 @@ from .academic_platforms.iacr import IACRSearcher
 from .academic_platforms.semantic import SemanticSearcher
 from .academic_platforms.crossref import CrossRefSearcher
 from .academic_platforms.openalex import OpenAlexSearcher
+from .academic_platforms.sci_hub import SciHubFetcher
 
-# from .academic_platforms.hub import SciHubSearcher
 from .paper import Paper
 
 # Initialize MCP server
@@ -28,7 +28,7 @@ iacr_searcher = IACRSearcher()
 semantic_searcher = SemanticSearcher()
 crossref_searcher = CrossRefSearcher()
 openalex_searcher = OpenAlexSearcher()
-# scihub_searcher = SciHubSearcher()
+scihub_fetcher = SciHubFetcher()
 
 
 # Asynchronous helper to adapt synchronous searchers
@@ -712,6 +712,48 @@ async def read_openalex_paper(paper_id: str, save_path: str = "./downloads") -> 
     except Exception as e:
         print(f"Error reading paper {paper_id}: {e}")
         return ""
+
+
+# ============================================================================
+# Sci-Hub Tools
+# ============================================================================
+
+@mcp.tool()
+async def download_scihub(
+    identifier: str,
+    save_path: str = "./downloads"
+) -> str:
+    """Download PDF from Sci-Hub using DOI, PMID, or URL.
+
+    Sci-Hub provides access to millions of research papers behind paywalls.
+    Use this tool when you cannot find a free PDF from other sources.
+
+    Args:
+        identifier: DOI (e.g., '10.1038/nature12373'), PMID, or paper URL
+        save_path: Directory to save the PDF (default: './downloads')
+
+    Returns:
+        Path to downloaded PDF or error message.
+
+    Examples:
+        # Download by DOI
+        await download_scihub("10.1038/nature12373")
+
+        # Download by PMID
+        await download_scihub("19872477")
+
+        # Download by URL
+        await download_scihub("https://arxiv.org/abs/2106.15928")
+
+    Note:
+        Sci-Hub operates in a legal gray area. Only use for legitimate research
+        purposes and ensure compliance with your local laws and institution policies.
+    """
+    result = scihub_fetcher.download_pdf(identifier)
+    if result:
+        return result
+    else:
+        return f"Failed to download PDF from Sci-Hub for identifier: {identifier}"
 
 
 if __name__ == "__main__":
