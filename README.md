@@ -143,7 +143,51 @@ Then run with:
 paper-search-mcp
 ```
 
-### For Development
+---
+
+## Environment Variables
+
+The following optional environment variables can be set to enhance functionality:
+
+| Variable | Required | Description | How to Get |
+|----------|----------|-------------|------------|
+| `SEMANTIC_SCHOLAR_API_KEY` | No | API key for Semantic Scholar (higher rate limits) | Sign up at [semantic scholar](https://www.semanticscholar.org/product/api#api-key) |
+| `CORE_API_KEY` | No | API key for CORE repository access | Sign up at [core.ac.uk](https://core.ac.uk/api-keys) |
+
+**Note:** All platforms work without API keys, but some may have lower rate limits or reduced functionality when unauthenticated.
+
+### Setting Environment Variables
+
+**In Claude Desktop config:**
+```json
+{
+  "mcpServers": {
+    "paper_search_server": {
+      "command": "uvx",
+      "args": ["--from", "gh:hongkongkiwi/paper-search-mcp", "paper-search-mcp"],
+      "env": {
+        "SEMANTIC_SCHOLAR_API_KEY": "your-key-here",
+        "CORE_API_KEY": "your-core-key-here"
+      }
+    }
+  }
+}
+```
+
+**In shell/terminal:**
+```bash
+# macOS/Linux
+export SEMANTIC_SCHOLAR_API_KEY="your-key-here"
+export CORE_API_KEY="your-core-key-here"
+
+# Windows PowerShell
+$env:SEMANTIC_SCHOLAR_API_KEY="your-key-here"
+$env:CORE_API_KEY="your-core-key-here"
+```
+
+---
+
+## Development
 
 For developers who want to modify the code or contribute:
 
@@ -154,22 +198,28 @@ For developers who want to modify the code or contribute:
    curl -LsSf https://astral.sh/uv/install.sh | sh
 
    # Clone repository
-   git clone https://github.com/openags/paper-search-mcp.git
+   git clone https://github.com/hongkongkiwi/paper-search-mcp.git
    cd paper-search-mcp
 
-   # Create and activate virtual environment
-   uv venv
-   source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+   # Sync dependencies
+   uv sync
    ```
 
-2. **Install Dependencies**:
+2. **Run Tests**:
 
    ```bash
-   # Install project in editable mode
-   uv add -e .
+   # Run all tests
+   uv run pytest tests/
 
-   # Add development dependencies (optional)
-   uv add pytest flake8
+   # Run specific test file
+   uv run pytest tests/test_arxiv.py -v
+   ```
+
+3. **Development Server**:
+
+   ```bash
+   # Run the MCP server for testing
+   uv run paper-search-mcp
    ```
 
 ---

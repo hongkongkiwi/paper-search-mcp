@@ -42,6 +42,8 @@ class CoreSearcher:
         })
         if self.api_key:
             self.session.headers['Authorization'] = f'Bearer {self.api_key}'
+        else:
+            logger.info("No CORE_API_KEY set. Using unauthenticated access with lower rate limits.")
 
     def search(
         self,
