@@ -12,6 +12,7 @@ from .academic_platforms.semantic import SemanticSearcher
 from .academic_platforms.crossref import CrossRefSearcher
 from .academic_platforms.openalex import OpenAlexSearcher
 from .academic_platforms.sci_hub import SciHubFetcher
+from .deduplication import deduplicate_paper_dicts, merge_duplicate_papers, dict_to_paper, find_duplicates
 
 from .paper import Paper
 
@@ -754,6 +755,130 @@ async def download_scihub(
         return result
     else:
         return f"Failed to download PDF from Sci-Hub for identifier: {identifier}"
+
+
+# ============================================================================
+# Deduplication Tools
+# ============================================================================
+
+@mcp.tool()
+async def deduplicate_papers(
+    papers: List[Dict],
+    keep: str = "first"
+) -> List[Dict]:
+    """Remove duplicate papers from a list of paper dictionaries.
+
+    Same papers often appear in multiple sources (arXiv, Semantic Scholar, etc.).
+    This tool identifies duplicates based on:
+    - DOI matching (most reliable)
+    - Title similarity (>= 90% match)
+    - Author + year matching
+
+    Args:
+        papers: List of paper dictionaries (e.g., from search results)
+        keep: Which duplicate to keep ('first', 'last', or 'best')
+            - 'first': Keep the first occurrence (default)
+            - 'last': Keep the last occurrence
+            - 'best': Keep the one with most complete metadata
+
+    Returns:
+        Deduplicated list of paper dictionaries.
+
+    Example:
+        # Combine and deduplicate results from multiple sources
+        arxiv_results = await search_arxiv("machine learning", 10)
+        semantic_results = await search_semantic("machine learning", 10)
+        all_papers = arxiv_results + semantic_results
+        unique_papers = await deduplicate_papers(all_papers, keep="best")
+    """
+    return deduplicate_paper_dicts(papers, keep)
+
+
+@mcp.tool()
+async def merge_papers(papers: List[Dict]) -> List[Dict]:
+    """Merge duplicate papers by combining their metadata.
+
+    When duplicates are found, this creates a merged paper with the best
+    metadata from all duplicates. Useful when different sources have
+    complementary information.
+
+    Args:
+        papers: List of paper dictionaries to deduplicate and merge
+
+    Returns:
+        List with duplicates merged, each having combined metadata.
+
+    Example:
+        # Merge results from multiple sources
+        arxiv_results = await search_arxiv("quantum computing", 10)
+        openalex_results = await search_openalex("quantum computing", 10)
+        all_papers = arxiv_results + openalex_results
+        merged_papers = await merge_papers(all_papers)
+    """
+    # Convert dicts to Paper objects
+    paper_objs = []
+    for d in papers:
+        try:
+            paper_objs.append(dict_to_paper(d))
+        except Exception:
+            continue
+
+    # Merge and convert back
+    merged = merge_duplicate_papers(paper_objs)
+    return [p.to_dict() for p in merged]
+
+
+@mcp.tool()
+async def find_duplicate_groups(papers: List[Dict]) -> Dict[str, List[Dict]]:
+    """Find and report groups of duplicate papers without removing them.
+
+    Useful for analyzing what duplicates exist before deciding how to handle them.
+
+    Args:
+        papers: List of paper dictionaries to analyze
+
+    Returns:
+        Dictionary with duplicate information:
+        {
+            "count": number of duplicate groups found,
+            "groups": list of duplicate groups,
+            "total_duplicates": total number of duplicate papers
+        }
+
+    Example:
+        # Check for duplicates in search results
+        results = await search_semantic("neural networks", 20)
+        dup_info = await find_duplicate_groups(results)
+        print(f"Found {dup_info['count']} duplicate groups")
+    """
+    # Convert dicts to Paper objects
+    paper_objs = []
+    for d in papers:
+        try:
+            paper_objs.append(dict_to_paper(d))
+        except Exception:
+            continue
+
+    # Find duplicates
+    groups = find_duplicates(paper_objs)
+
+    # Convert to report format
+    group_dicts = []
+    for canonical, dups in groups:
+        group_dict = {
+            "canonical": canonical.to_dict(),
+            "duplicates": [d.to_dict() for d in dups],
+            "sources": [d.source for d in [canonical] + dups]
+        }
+        group_dicts.append(group_dict)
+
+    total_dupes = sum(len(g[1]) for g in groups)
+
+    return {
+        "count": len(groups),
+        "groups": group_dicts,
+        "total_duplicates": total_dupes
+    }
 
 
 if __name__ == "__main__":
