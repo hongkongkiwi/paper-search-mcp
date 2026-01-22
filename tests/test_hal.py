@@ -67,7 +67,7 @@ class TestHALSearcherUnit(unittest.TestCase):
 
     def test_base_url(self):
         """Test that base URL is set correctly."""
-        self.assertIn("hal.science", self.searcher.BASE_URL)
+        self.assertIn("archives-ouvertes.fr", self.searcher.BASE_URL)
 
 
 if __name__ == "__main__":

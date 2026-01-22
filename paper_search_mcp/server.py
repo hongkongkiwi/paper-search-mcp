@@ -13,6 +13,9 @@ from .academic_platforms.crossref import CrossRefSearcher
 from .academic_platforms.openalex import OpenAlexSearcher
 from .academic_platforms.pmc import PMCSearcher
 from .academic_platforms.sci_hub import SciHubFetcher
+from .academic_platforms.hal import HALSearcher
+from .academic_platforms.ssrn import SSRNSearcher
+from .academic_platforms.dblp import DBLPSearcher
 from .deduplication import deduplicate_paper_dicts, merge_duplicate_papers, dict_to_paper, find_duplicates
 
 from .paper import Paper
@@ -32,6 +35,9 @@ crossref_searcher = CrossRefSearcher()
 openalex_searcher = OpenAlexSearcher()
 pmc_searcher = PMCSearcher()
 scihub_fetcher = SciHubFetcher()
+hal_searcher = HALSearcher()
+ssrn_searcher = SSRNSearcher()
+dblp_searcher = DBLPSearcher()
 
 
 # Synchronous helper to adapt synchronous searchers
@@ -957,6 +963,382 @@ async def read_pmc_paper(paper_id: str, save_path: str = "./downloads") -> str:
         print(f"Error reading paper {paper_id}: {e}")
         return ""
 
+
+# ============================================================================
+# HAL Tools
+# ============================================================================
+
+@mcp.tool()
+async def search_hal(
+    query: str,
+    max_results: int = 10,
+    year: Optional[str] = None,
+    doc_type: Optional[str] = None,
+    collection: Optional[str] = None,
+    language: Optional[str] = None
+) -> List[Dict]:
+    """Search academic documents from HAL (French open archive).
+
+    HAL provides access to scientific documents from French institutions including
+    theses, preprints, conference papers, journal articles, and reports.
+
+    Args:
+        query: Search query string (e.g., 'machine learning', 'intelligence artificielle')
+        max_results: Maximum number of papers to return (default: 10)
+        year: Optional year filter (e.g., '2020', '2018-2022')
+        doc_type: Document type filter ('thesis', 'preprint', 'article', 'communication', 'report', 'book')
+        collection: Collection filter (e.g., 'CNRS', 'INRIA', 'UNIV-PARIS')
+        language: Language filter (e.g., 'en', 'fr', 'de')
+
+    Returns:
+        List of paper metadata in dictionary format.
+
+    Examples:
+        # Basic search
+        await search_hal("deep learning", 20)
+
+        # Search for theses
+        await search_hal("neural networks", 10, doc_type="thesis")
+
+        # Search in French
+        await search_hal("apprentissage automatique", 10, language="fr")
+    """
+    search_kwargs = {"year": year} if year else {}
+    if doc_type:
+        search_kwargs["doc_type"] = doc_type
+    if collection:
+        search_kwargs["collection"] = collection
+    if language:
+        search_kwargs["language"] = language
+
+    papers = hal_searcher.search(query, max_results, **search_kwargs)
+    return [paper.to_dict() for paper in papers] if papers else []
+
+
+@mcp.tool()
+async def search_hal_by_author(
+    author_name: str,
+    max_results: int = 10,
+    year: Optional[str] = None
+) -> List[Dict]:
+    """Search for documents by author name in HAL.
+
+    Args:
+        author_name: Name of the author (e.g., 'Yann LeCun')
+        max_results: Maximum number of papers to return (default: 10)
+        year: Optional year filter (e.g., '2020', '2018-2022')
+
+    Returns:
+        List of papers by the author.
+
+    Example:
+        await search_hal_by_author("Jean-Pierre Nadal", 15)
+    """
+    papers = hal_searcher.search_by_author_name(author_name, max_results, year)
+    return [paper.to_dict() for paper in papers] if papers else []
+
+
+@mcp.tool()
+async def get_hal_document(doc_id: str) -> Dict:
+    """Get a specific document from HAL by its ID.
+
+    Args:
+        doc_id: HAL document ID (e.g., 'hal-01234567')
+
+    Returns:
+        Paper metadata in dictionary format, or empty dict if not found.
+
+    Example:
+        await get_hal_document("hal-01234567")
+    """
+    paper = hal_searcher.get_document_by_id(doc_id)
+    return paper.to_dict() if paper else {}
+
+
+@mcp.tool()
+async def download_hal(doc_id: str, save_path: str = "./downloads") -> str:
+    """Download PDF of a HAL document.
+
+    Args:
+        doc_id: HAL document ID (e.g., 'hal-01234567')
+        save_path: Directory to save the PDF (default: './downloads')
+
+    Returns:
+        Path to downloaded PDF or error message.
+
+    Example:
+        await download_hal("hal-01234567")
+    """
+    return hal_searcher.download_file(doc_id, save_path)
+
+
+@mcp.tool()
+async def read_hal_paper(doc_id: str, save_path: str = "./downloads") -> str:
+    """Read and extract text content from a HAL document.
+
+    Args:
+        doc_id: HAL document ID (e.g., 'hal-01234567')
+        save_path: Directory where the PDF is/will be saved (default: './downloads')
+
+    Returns:
+        The extracted text content (abstract) of the document.
+
+    Example:
+        content = await read_hal_paper("hal-01234567")
+    """
+    return hal_searcher.read_paper(doc_id, save_path)
+
+
+# ============================================================================
+# SSRN Tools
+# ============================================================================
+
+@mcp.tool()
+async def search_ssrn(
+    query: str,
+    max_results: int = 10,
+    year: Optional[str] = None,
+    topic: Optional[str] = None
+) -> List[Dict]:
+    """Search academic papers from SSRN (Social Sciences Research Network).
+
+    SSRN specializes in preprints and early-stage research in economics, finance,
+    law, business, and social sciences.
+
+    Args:
+        query: Search query string (e.g., 'financial regulation', 'corporate governance')
+        max_results: Maximum number of papers to return (default: 10)
+        year: Optional year filter (e.g., '2020', '2018-2022')
+        topic: Topic filter (e.g., 'Economics', 'Finance', 'Law', 'Business')
+
+    Returns:
+        List of paper metadata in dictionary format.
+
+    Examples:
+        # Basic search
+        await search_ssrn("blockchain", 20)
+
+        # Search by topic
+        await search_ssrn("market efficiency", 15, topic="Finance")
+
+        # Search with year filter
+        await search_ssrn("climate finance", 10, year="2020-2023")
+    """
+    search_kwargs = {"year": year} if year else {}
+    if topic:
+        search_kwargs["topic"] = topic
+
+    papers = ssrn_searcher.search(query, max_results, **search_kwargs)
+    return [paper.to_dict() for paper in papers] if papers else []
+
+
+@mcp.tool()
+async def search_ssrn_by_author(
+    author_name: str,
+    max_results: int = 10,
+    year: Optional[str] = None
+) -> List[Dict]:
+    """Search for papers by author name in SSRN.
+
+    Args:
+        author_name: Name of the author (e.g., 'Luigi Zingales')
+        max_results: Maximum number of papers to return (default: 10)
+        year: Optional year filter (e.g., '2020', '2018-2022')
+
+    Returns:
+        List of papers by the author.
+
+    Example:
+        await search_ssrn_by_author("Andrei Shleifer", 15)
+    """
+    papers = ssrn_searcher.search_by_author(author_name, max_results, year)
+    return [paper.to_dict() for paper in papers] if papers else []
+
+
+@mcp.tool()
+async def get_ssrn_paper(paper_id: str) -> Dict:
+    """Get a specific paper from SSRN by its ID.
+
+    Args:
+        paper_id: SSRN paper ID (e.g., '1234567')
+
+    Returns:
+        Paper metadata in dictionary format, or empty dict if not found.
+
+    Example:
+        await get_ssrn_paper("1234567")
+    """
+    paper = ssrn_searcher.get_paper_by_id(paper_id)
+    return paper.to_dict() if paper else {}
+
+
+@mcp.tool()
+async def download_ssrn(paper_id: str, save_path: str = "./downloads") -> str:
+    """Download PDF of an SSRN paper.
+
+    Args:
+        paper_id: SSRN paper ID (e.g., '1234567')
+        save_path: Directory to save the PDF (default: './downloads')
+
+    Returns:
+        Path to downloaded PDF or error message.
+
+    Note:
+        SSRN may require login for some downloads. This attempts to download
+        from publicly available sources.
+
+    Example:
+        await download_ssrn("1234567")
+    """
+    return ssrn_searcher.download_pdf(paper_id, save_path)
+
+
+@mcp.tool()
+async def read_ssrn_paper(paper_id: str, save_path: str = "./downloads") -> str:
+    """Read and extract text content from an SSRN paper.
+
+    Args:
+        paper_id: SSRN paper ID (e.g., '1234567')
+        save_path: Directory where the PDF is/will be saved (default: './downloads')
+
+    Returns:
+        The extracted text content (abstract) of the paper.
+
+    Example:
+        content = await read_ssrn_paper("1234567")
+    """
+    return ssrn_searcher.read_paper(paper_id, save_path)
+
+
+# ============================================================================
+# DBLP Tools
+# ============================================================================
+
+@mcp.tool()
+async def search_dblp(
+    query: str,
+    max_results: int = 10,
+    year: Optional[str] = None,
+    venue_type: Optional[str] = None,
+    venue: Optional[str] = None
+) -> List[Dict]:
+    """Search computer science publications from DBLP.
+
+    DBLP indexes major CS conferences, journals, books, and theses.
+    It's the primary bibliography for computer science research.
+
+    Args:
+        query: Search query string (e.g., 'transformer attention', 'federated learning')
+        max_results: Maximum number of papers to return (default: 10, max: 1000)
+        year: Optional year filter (e.g., '2020', '2018-2022')
+        venue_type: Filter by type ('conference', 'journal', 'book', 'thesis')
+        venue: Filter by venue name (e.g., 'CVPR', 'ICML', 'NeurIPS')
+
+    Returns:
+        List of paper metadata in dictionary format.
+
+    Examples:
+        # Basic search
+        await search_dblp("neural architecture search", 20)
+
+        # Search conference papers only
+        await search_dblp("reinforcement learning", 15, venue_type="conference")
+
+        # Search specific venue
+        await search_dblp("attention", 10, venue="NeurIPS")
+    """
+    search_kwargs = {"year": year} if year else {}
+    if venue_type:
+        search_kwargs["venue_type"] = venue_type
+    if venue:
+        search_kwargs["venue"] = venue
+
+    papers = dblp_searcher.search(query, max_results, **search_kwargs)
+    return [paper.to_dict() for paper in papers] if papers else []
+
+
+@mcp.tool()
+async def search_dblp_by_author(
+    author_name: str,
+    max_results: int = 10,
+    year: Optional[str] = None
+) -> List[Dict]:
+    """Search for publications by author name in DBLP.
+
+    Args:
+        author_name: Name of the author (e.g., 'Geoffrey Hinton')
+        max_results: Maximum number of papers to return (default: 10)
+        year: Optional year filter (e.g., '2020', '2018-2022')
+
+    Returns:
+        List of papers by the author.
+
+    Example:
+        await search_dblp_by_author("Yann LeCun", 15)
+    """
+    papers = dblp_searcher.search_by_author(author_name, max_results, year)
+    return [paper.to_dict() for paper in papers] if papers else []
+
+
+@mcp.tool()
+async def search_dblp_venue(venue_name: str, max_results: int = 50) -> List[Dict]:
+    """Search publications from a specific DBLP venue.
+
+    Args:
+        venue_name: Venue name (e.g., 'CVPR', 'ICML', 'NeurIPS', 'AAAI')
+        max_results: Maximum number of papers to return (default: 50)
+
+    Returns:
+        List of papers from the venue.
+
+    Example:
+        await search_dblp_venue("NeurIPS", 100)
+    """
+    papers = dblp_searcher.search_venue(venue_name, max_results)
+    return [paper.to_dict() for paper in papers] if papers else []
+
+
+@mcp.tool()
+async def get_dblp_paper(key: str) -> Dict:
+    """Get a specific paper from DBLP by its key.
+
+    Args:
+        key: DBLP key (e.g., 'conf/icml/GuptaM20', 'conf/nips/VaswaniSPU17')
+
+    Returns:
+        Paper metadata in dictionary format, or empty dict if not found.
+
+    Example:
+        await get_dblp_paper("conf/nips/VaswaniSPU17")
+    """
+    paper = dblp_searcher.get_paper_by_key(key)
+    return paper.to_dict() if paper else {}
+
+
+@mcp.tool()
+async def get_dblp_top_conferences() -> List[Dict]:
+    """Get list of major computer science conferences in DBLP.
+
+    Returns:
+        List of conference info with keys and names.
+
+    Example:
+        conferences = await get_dblp_top_conferences()
+    """
+    return dblp_searcher.get_top_conferences()
+
+
+@mcp.tool()
+async def get_dblp_top_journals() -> List[Dict]:
+    """Get list of major computer science journals in DBLP.
+
+    Returns:
+        List of journal info with keys and names.
+
+    Example:
+        journals = await get_dblp_top_journals()
+    """
+    return dblp_searcher.get_top_journals()
 
 
 def main():

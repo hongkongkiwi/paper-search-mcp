@@ -1,0 +1,84 @@
+# Paper Search MCP - Kilo AI Coding Assistant Rules
+
+## Project Context
+
+This is a Python MCP (Model Context Protocol) server for academic paper search and download. It integrates 16+ academic platforms and exposes ~70 tools for LLMs to access research papers.
+
+## Quick Reference
+
+**Purpose**: Search/download academic papers from arXiv, PubMed, Semantic Scholar, etc.
+**Language**: Python 3.10+
+**Framework**: FastMCP for tool exposure
+**Package Manager**: UV
+
+## Architecture
+
+```
+academic_platforms/     →  Platform-specific searchers (arxiv.py, semantic.py, etc.)
+server.py              →  MCP server with @mcp.tool() decorated functions
+paper.py               →  Paper dataclass with to_dict() method
+deduplication.py       →  Duplicate detection utilities
+tests/                 →  pytest test suite
+```
+
+## Standard Patterns
+
+### Platform Searcher Class
+
+```python
+# academic_platforms/example.py
+class ExampleSearcher:
+    def search(self, query: str, max_results: int = 10, **kwargs) -> List[Paper]:
+        # Return list of Paper objects
+        pass
+
+    def download_pdf(self, paper_id: str, save_path: str) -> str:
+        # Return path to downloaded PDF or error message
+        pass
+
+    def read_paper(self, paper_id: str, save_path: str) -> str:
+        # Return extracted text content
+        pass
+```
+
+### MCP Tool Exposure
+
+```python
+# server.py
+@mcp.tool()
+async def search_example(query: str, max_results: int = 10) -> List[Dict]:
+    papers = example_searcher.search(query, max_results)
+    return [p.to_dict() for p in papers] if papers else []
+```
+
+## Coding Rules
+
+1. **All MCP tools are async** - even if wrapping sync code
+2. **Return empty lists on errors** - don't raise exceptions to user
+3. **Truncate abstracts to 5000 chars** - to stay within token limits
+4. **Use type hints** - List[Dict], Optional[str], etc.
+5. **Follow naming conventions**:
+   - `search_<platform>` for search tools
+   - `download_<platform>` for PDF downloads
+   - `read_<platform>_paper` for text extraction
+
+## Development
+
+```bash
+uv sync                  # Install dependencies
+uv run pytest tests/     # Run tests
+uv run paper-search-mcp  # Run MCP server
+```
+
+## Testing
+
+- Create `tests/test_platform.py` for new platforms
+- Mock API responses for reliability
+- Test error handling, not just success paths
+
+## Environment
+
+- `SEMANTIC_SCHOLAR_API_KEY` - Optional (higher rate limits)
+- `CORE_API_KEY` - Optional (CORE repository access)
+
+No keys required for basic functionality.

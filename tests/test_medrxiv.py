@@ -1,5 +1,6 @@
 import unittest
 import os
+import shutil
 import requests
 from paper_search_mcp.academic_platforms.medrxiv import MedRxivSearcher
 
@@ -55,7 +56,7 @@ class TestMedRxivSearcher(unittest.TestCase):
             if pdf_path and os.path.exists(pdf_path):
                 os.remove(pdf_path)
             if os.path.exists(save_path):
-                os.rmdir(save_path)
+                shutil.rmtree(save_path, ignore_errors=True)
 
 if __name__ == '__main__':
     unittest.main()

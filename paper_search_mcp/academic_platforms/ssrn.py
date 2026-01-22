@@ -17,7 +17,7 @@ from ..paper import Paper
 logger = logging.getLogger(__name__)
 
 
-class SSFNSearcher:
+class SSRNSearcher:
     """Searcher for SSRN preprints and early research.
 
     SSRN covers:
@@ -642,7 +642,7 @@ class SSFNSearcher:
 
 if __name__ == "__main__":
     # Test SSRN searcher
-    searcher = SSFNSearcher()
+    searcher = SSRNSearcher()
 
     print("Testing SSRN search...")
     papers = searcher.search("blockchain", 5)

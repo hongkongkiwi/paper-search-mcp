@@ -1,0 +1,186 @@
+# Paper Search MCP - Cursor AI Coding Rules
+
+## Project Overview
+
+This is a Python-based MCP (Model Context Protocol) server for searching and downloading academic papers from multiple sources. The project uses FastMCP for tool exposure and integrates with 16 academic platforms.
+
+## Technology Stack
+
+- **Language**: Python 3.10+
+- **MCP Framework**: FastMCP (mcp[cli])
+- **Package Manager**: UV (modern Python package manager)
+- **Testing**: pytest
+- **Key Dependencies**: requests, feedparser, PyPDF2, beautifulsoup4, lxml, httpx
+
+## Project Structure
+
+```
+paper_search_mcp/
+├── academic_platforms/    # Platform integrations (one file per platform)
+├── server.py              # MCP server with tool definitions
+├── paper.py               # Paper dataclass
+├── deduplication.py       # Duplicate detection utilities
+tests/                     # Test suite (one file per platform)
+```
+
+## Coding Standards
+
+### Platform Implementation
+
+When adding a new academic platform:
+
+1. **Create a new file in `academic_platforms/`**
+   - Use lowercase filename: `platform_name.py`
+   - Inherit search patterns from existing platforms
+
+2. **Required Class Structure**:
+   ```python
+   class PlatformSearcher:
+       BASE_URL = "https://api.example.com"
+
+       def __init__(self):
+           self.session = requests.Session()
+
+       def search(self, query: str, max_results: int = 10, **kwargs) -> List[Paper]:
+           # Required: Search and return Paper objects
+
+       def download_pdf(self, paper_id: str, save_path: str) -> str:
+           # Optional: Return path to downloaded PDF or error message
+
+       def read_paper(self, paper_id: str, save_path: str) -> str:
+           # Optional: Extract and return paper text
+   ```
+
+3. **Return Paper objects with these fields**:
+   - `paper_id`: Unique identifier
+   - `title`: Paper title
+   - `authors`: List of author names
+   - `abstract`: Abstract text (truncated to 5000 chars)
+   - `doi`: Digital Object Identifier (if available)
+   - `published_date`: datetime object
+   - `pdf_url`: Direct PDF download link
+   - `url`: Paper landing page URL
+   - `source`: Platform name (lowercase)
+   - `categories`: List of categories/keywords
+   - `extra`: Dict for platform-specific metadata
+
+### MCP Tool Exposure (server.py)
+
+After creating a platform, expose it as MCP tools:
+
+1. **Import the searcher class** at the top of `server.py`
+2. **Create searcher instance** with other searchers
+3. **Add MCP tools** following this pattern:
+
+```python
+@mcp.tool()
+async def search_platform(query: str, max_results: int = 10, **kwargs) -> List[Dict]:
+    """Search academic papers from Platform.
+
+    Args:
+        query: Search query string
+        max_results: Maximum number of papers to return
+        **kwargs: Platform-specific filters (year, venue_type, etc.)
+
+    Returns:
+        List of paper metadata in dictionary format.
+    """
+    papers = platform_searcher.search(query, max_results, **kwargs)
+    return [paper.to_dict() for paper in papers] if papers else []
+
+@mcp.tool()
+async def download_platform(paper_id: str, save_path: str = "./downloads") -> str:
+    """Download PDF of a Platform paper."""
+    return platform_searcher.download_pdf(paper_id, save_path)
+
+@mcp.tool()
+async def read_platform_paper(paper_id: str, save_path: str = "./downloads") -> str:
+    """Read and extract text content from a Platform paper."""
+    try:
+        return platform_searcher.read_paper(paper_id, save_path)
+    except Exception as e:
+        print(f"Error reading paper {paper_id}: {e}")
+        return ""
+```
+
+### Testing
+
+1. **Create test file**: `tests/test_platform.py`
+2. **Use pytest** and follow patterns from existing tests
+3. **Test both**: successful searches and error handling
+4. **Run tests**: `uv run pytest tests/test_platform.py -v`
+
+### Development Workflow
+
+```bash
+# Install dependencies
+uv sync
+
+# Run tests
+uv run pytest tests/
+
+# Run MCP server for testing
+uv run paper-search-mcp
+
+# Add new dependency
+uv add <package>
+
+# Update dependencies
+uv lock --upgrade-package <package>
+```
+
+## Important Constraints
+
+1. **No API keys required**: All platforms should work without authentication
+2. **Rate limiting**: Be respectful of API rate limits
+3. **Error handling**: Always return gracefully on errors (empty lists, error messages)
+4. **Async tools**: All MCP tools must be async functions
+5. **Docstrings**: All tools need clear docstrings with Args/Returns/Examples
+
+## Common Patterns
+
+### Making API Requests
+
+```python
+response = self.session.get(url, params=params, timeout=30)
+response.raise_for_status()
+```
+
+### Parsing Responses
+
+```python
+from ..paper import Paper
+
+return Paper(
+    paper_id=...,
+    title=...,
+    authors=[...],
+    abstract=abstract[:5000] if abstract else "",  # Truncate long abstracts
+    published_date=published_date or datetime.min,
+    extra={}
+)
+```
+
+### Handling Optional Features
+
+If a platform doesn't support downloads:
+
+```python
+def download_pdf(self, paper_id: str, save_path: str) -> str:
+    raise NotImplementedError("Direct PDF download is not supported for this platform")
+```
+
+## Platform-Specific Notes
+
+- **arXiv**: Uses OAI-PMH protocol, PDFs always available
+- **PubMed**: Abstracts only, no direct PDF access
+- **Semantic Scholar**: Rich API with citations/references
+- **OpenAlex**: Largest open bibliography, requires email attribution
+- **DBLP**: Computer science only, no abstracts, hosts metadata
+- **Google Scholar**: Web scraping, rate-limited, no native download
+- **Sci-Hub**: Legal gray area, use for legitimate research only
+
+## Environment Variables
+
+- `SEMANTIC_SCHOLAR_API_KEY`: Optional, for higher rate limits
+- `CORE_API_KEY`: Optional, for CORE repository access

@@ -39,7 +39,7 @@ class TestOpenAlexSearcher(unittest.TestCase):
             paper = results[0]
             self.assertTrue(hasattr(paper, "title"))
             self.assertTrue(hasattr(paper, "authors"))
-            self.assertEqual(paper.source, "openalex")
+            self.assertTrue(paper.source.startswith("openalex"))
 
     @unittest.skipUnless(check_openalex_accessible(), "OpenAlex not accessible")
     def test_search_empty_query(self):

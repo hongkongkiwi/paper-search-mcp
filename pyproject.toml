@@ -10,7 +10,7 @@ authors = [
 ]
 description = "A MCP server for searching and downloading academic papers from multiple sources."
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.10,<3.14"
 license = { text = "MIT" }
 
 dependencies = [
@@ -34,3 +34,6 @@ Issues = "https://github.com/hongkongkiwi/paper-search-mcp/issues"
 
 [tool.hatch.build.targets.wheel]
 packages = ["paper_search_mcp"]
+
+[dependency-groups]
+dev = ["pytest>=7.0.0"]

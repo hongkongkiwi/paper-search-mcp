@@ -1,0 +1,74 @@
+# Paper Search MCP - Roo Code AI Instructions
+
+## Project
+
+Paper Search MCP is a Python-based Model Context Protocol server that enables LLMs to search and download academic papers from 16+ academic sources including arXiv, PubMed, Semantic Scholar, OpenAlex, and more.
+
+## Tech Stack
+
+- Python 3.10+
+- FastMCP for MCP tool exposure
+- UV package manager
+- pytest for testing
+
+## Project Structure
+
+```
+paper_search_mcp/
+├── academic_platforms/    # Platform integrations (one per source)
+├── server.py              # MCP server with @mcp.tool() decorators
+├── paper.py               # Paper dataclass
+└── deduplication.py       # Duplicate handling utilities
+tests/                     # One test file per platform
+```
+
+## When Adding Features
+
+1. **New Academic Platform**:
+   - Create `academic_platforms/platform.py` with `PlatformSearcher` class
+   - Implement `search()`, `download_pdf()`, `read_paper()` methods
+   - Return `List[Paper]` objects
+   - Add to `server.py`: import, instantiate, create `@mcp.tool()` functions
+   - Create `tests/test_platform.py`
+
+2. **New MCP Tool**:
+   - Add async function with `@mcp.tool()` decorator in `server.py`
+   - Follow pattern: `async def tool_name(args) -> ReturnType:`
+   - Include docstring with Args, Returns, Examples
+
+3. **Testing**:
+   - Use pytest
+   - Mock API responses for reliability
+   - Test both success and error cases
+
+## Code Style
+
+- Use type hints (List[Dict], Optional[str], etc.)
+- Return empty lists on search errors, not None
+- Return error message strings for download/read failures
+- Truncate abstracts to 5000 chars max
+- Use `datetime.min` for unknown dates
+- All MCP tools must be async
+
+## Development Commands
+
+```bash
+# Sync dependencies
+uv sync
+
+# Run tests
+uv run pytest tests/
+
+# Run MCP server
+uv run paper-search-mcp
+
+# Add dependency
+uv add package_name
+```
+
+## Important
+
+- No API keys required for any platform
+- Respect rate limits
+- Return gracefully on errors
+- Follow existing patterns for consistency
