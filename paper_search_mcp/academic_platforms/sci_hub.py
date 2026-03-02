@@ -10,16 +10,25 @@ from typing import Optional
 
 import requests
 from bs4 import BeautifulSoup
+from PyPDF2 import PdfReader
+
+
+SCIHUB_MIRRORS = [
+    "https://sci-hub.ru",
+    "https://sci-hub.st",
+    "https://sci-hub.su",
+    "https://sci-hub.box",
+    "https://sci-hub.red",
+]
 
 
 class SciHubFetcher:
     """Simple Sci-Hub PDF downloader."""
 
-    def __init__(self, base_url: str = "https://sci-hub.se", output_dir: str = "./downloads"):
-        """Initialize with Sci-Hub URL and output directory."""
-        self.base_url = base_url.rstrip("/")
-        self.output_dir = Path(output_dir)
-        self.output_dir.mkdir(parents=True, exist_ok=True)
+    def __init__(self, mirrors: list = None):
+        """Initialize with list of Sci-Hub mirror URLs."""
+        self.mirrors = [m.rstrip("/") for m in (mirrors or SCIHUB_MIRRORS)]
+        self._failed_mirrors: set = set()
         self.session = requests.Session()
         self.session.headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
@@ -31,11 +40,12 @@ class SciHubFetcher:
             'Upgrade-Insecure-Requests': '1',
         }
 
-    def download_pdf(self, identifier: str) -> Optional[str]:
+    def download_pdf(self, identifier: str, save_path: str = "./downloads") -> Optional[str]:
         """Download a PDF from Sci-Hub using a DOI, PMID, or URL.
 
         Args:
             identifier: DOI, PMID, or URL to the paper
+            save_path: Directory to save the PDF
 
         Returns:
             Path to saved PDF or None on failure
@@ -44,15 +54,21 @@ class SciHubFetcher:
             return None
 
         try:
-            # Get direct URL to PDF
-            pdf_url = self._get_direct_url(identifier)
+            # Try each mirror in order, skipping known failed ones
+            pdf_url = None
+            for mirror in self.mirrors:
+                if mirror in self._failed_mirrors:
+                    continue
+                pdf_url = self._get_direct_url(identifier, mirror)
+                if pdf_url:
+                    break
             if not pdf_url:
                 logging.error(f"Could not find PDF URL for identifier: {identifier}")
                 return None
 
             # Download the PDF
             response = self.session.get(pdf_url, verify=False, timeout=30)
-            
+
             if response.status_code != 200:
                 logging.error(f"Failed to download PDF, status {response.status_code}")
                 return None
@@ -62,37 +78,41 @@ class SciHubFetcher:
                 return None
 
             # Generate filename and save
+            output_dir = Path(save_path)
+            output_dir.mkdir(parents=True, exist_ok=True)
             filename = self._generate_filename(response, identifier)
-            file_path = self.output_dir / filename
-            
+            file_path = output_dir / filename
+
             with open(file_path, 'wb') as f:
                 f.write(response.content)
-                
+
             return str(file_path)
 
         except Exception as e:
             logging.error(f"Error downloading PDF for {identifier}: {e}")
             return None
 
-    def _get_direct_url(self, identifier: str) -> Optional[str]:
-        """Get the direct PDF URL from Sci-Hub."""
+    def _get_direct_url(self, identifier: str, base_url: str) -> Optional[str]:
+        """Get the direct PDF URL from a Sci-Hub mirror."""
         try:
             # If it's already a direct PDF URL, return it
             if identifier.endswith('.pdf'):
                 return identifier
 
             # Search on Sci-Hub
-            search_url = f"{self.base_url}/{identifier}"
+            search_url = f"{base_url}/{identifier}"
             response = self.session.get(search_url, verify=False, timeout=20)
-            
+
             if response.status_code != 200:
+                self._failed_mirrors.add(base_url)
+                logging.warning(f"Mirror {base_url} returned status {response.status_code}, marking as failed")
                 return None
 
             soup = BeautifulSoup(response.content, 'html.parser')
-            
-            # Check for article not found
+
+            # Check for article not found (mirror is working, paper just isn't available)
             if "article not found" in response.text.lower():
-                logging.warning("Article not found on Sci-Hub")
+                logging.warning(f"Article not found on {base_url}")
                 return None
 
             # Look for embed tag with PDF (most common in modern Sci-Hub)
@@ -107,7 +127,7 @@ class SciHubFetcher:
                         logging.debug(f"Returning PDF URL: {pdf_url}")
                         return pdf_url
                     elif src.startswith('/'):
-                        pdf_url = self.base_url + src
+                        pdf_url = base_url + src
                         logging.debug(f"Returning PDF URL: {pdf_url}")
                         return pdf_url
                     else:
@@ -122,7 +142,7 @@ class SciHubFetcher:
                     if src.startswith('//'):
                         return 'https:' + src
                     elif src.startswith('/'):
-                        return self.base_url + src
+                        return base_url + src
                     else:
                         return src
 
@@ -137,7 +157,7 @@ class SciHubFetcher:
                         if url.startswith('//'):
                             return 'https:' + url
                         elif url.startswith('/'):
-                            return self.base_url + url
+                            return base_url + url
                         else:
                             return url
 
@@ -148,15 +168,49 @@ class SciHubFetcher:
                     if href.startswith('//'):
                         return 'https:' + href
                     elif href.startswith('/'):
-                        return self.base_url + href
+                        return base_url + href
                     elif href.startswith('http'):
                         return href
 
             return None
 
-        except Exception as e:
-            logging.error(f"Error getting direct URL for {identifier}: {e}")
+        except requests.exceptions.ConnectionError:
+            self._failed_mirrors.add(base_url)
+            logging.warning(f"Mirror {base_url} is unreachable, marking as failed")
             return None
+        except requests.exceptions.Timeout:
+            self._failed_mirrors.add(base_url)
+            logging.warning(f"Mirror {base_url} timed out, marking as failed")
+            return None
+        except Exception as e:
+            logging.error(f"Error getting direct URL from {base_url} for {identifier}: {e}")
+            return None
+
+    def read_paper(self, identifier: str, save_path: str = "./downloads") -> str:
+        """Download and extract text from a paper via Sci-Hub.
+
+        Args:
+            identifier: DOI, PMID, article URL, or direct PDF URL.
+            save_path: Directory where the PDF is/will be saved (default: './downloads').
+
+        Returns:
+            str: Extracted text from the PDF or error message.
+        """
+        try:
+            pdf_path = self.download_pdf(identifier, save_path)
+            if not pdf_path:
+                return "Failed to download PDF from Sci-Hub."
+
+            reader = PdfReader(pdf_path)
+            text_parts = []
+            for page in reader.pages:
+                page_text = page.extract_text() or ""
+                text_parts.append(page_text)
+            text = "\n".join(text_parts).strip()
+            return text or "No extractable text found in PDF."
+        except Exception as e:
+            logging.error(f"Error reading paper {identifier}: {e}")
+            return f"Failed to read paper from Sci-Hub: {e}"
 
     def _generate_filename(self, response: requests.Response, identifier: str) -> str:
         """Generate a unique filename for the PDF."""

@@ -744,11 +744,20 @@ async def download_scihub(
         Sci-Hub operates in a legal gray area. Only use for legitimate research
         purposes and ensure compliance with your local laws and institution policies.
     """
-    result = scihub_fetcher.download_pdf(identifier)
-    if result:
-        return result
-    else:
-        return f"Failed to download PDF from Sci-Hub for identifier: {identifier}"
+    return scihub_fetcher.download_pdf(identifier, save_path) or f"Failed to download PDF from Sci-Hub for identifier: {identifier}"
+
+
+@mcp.tool()
+async def read_scihub_paper(identifier: str, save_path: str = "./downloads") -> str:
+    """Download and extract text from a paper via Sci-Hub.
+
+    Args:
+        identifier: DOI, PMID, article URL, or direct PDF URL.
+        save_path: Directory where the PDF is/will be saved (default: './downloads').
+    Returns:
+        Extracted paper text, or an error message if unavailable.
+    """
+    return scihub_fetcher.read_paper(identifier, save_path)
 
 
 # ============================================================================

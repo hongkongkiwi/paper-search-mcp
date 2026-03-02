@@ -67,7 +67,7 @@ The easiest way to run paper-search-mcp is using `uvx` with your GitHub reposito
 
 ```bash
 # Run directly from GitHub
-uvx --from gh:hongkongkiwi/paper-search-mcp paper-search-mcp
+uvx --from git+https://github.com/hongkongkiwi/paper-search-mcp paper-search-mcp
 ```
 
 **Claude Desktop Configuration with uvx:**
@@ -81,7 +81,7 @@ Add this to `~/Library/Application Support/Claude/claude_desktop_config.json` (M
       "command": "uvx",
       "args": [
         "--from",
-        "gh:hongkongkiwi/paper-search-mcp",
+        "git+https://github.com/hongkongkiwi/paper-search-mcp",
         "paper-search-mcp"
       ],
       "env": {
@@ -164,7 +164,7 @@ The following optional environment variables can be set to enhance functionality
   "mcpServers": {
     "paper_search_server": {
       "command": "uvx",
-      "args": ["--from", "gh:hongkongkiwi/paper-search-mcp", "paper-search-mcp"],
+      "args": ["--from", "git+https://github.com/hongkongkiwi/paper-search-mcp", "paper-search-mcp"],
       "env": {
         "SEMANTIC_SCHOLAR_API_KEY": "your-key-here",
         "CORE_API_KEY": "your-core-key-here"
