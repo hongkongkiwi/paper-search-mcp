@@ -65,7 +65,8 @@ class PMCSearcher:
                 "retmax": max_results,
                 "retmode": "json",
                 "tool": "paper_search_mcp",
-                "email": "paper-search-mcp@example.com"
+                "email": "paper-search-mcp@example.com",
+                "sort": "relevance"
             }
 
             # Add year filter if provided

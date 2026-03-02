@@ -43,7 +43,8 @@ class PubMedSearcher(PaperSource):
                 'db': 'pubmed',
                 'term': query,
                 'retmax': max_results,
-                'retmode': 'xml'
+                'retmode': 'xml',
+                'sort': 'relevance'
             }
             search_response = requests.get(self.SEARCH_URL, params=search_params, timeout=30)
             search_response.raise_for_status()
