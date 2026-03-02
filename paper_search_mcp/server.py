@@ -1,5 +1,6 @@
 # paper_search_mcp/server.py
 from typing import List, Dict, Optional
+import os
 import httpx
 from mcp.server.fastmcp import FastMCP
 from .academic_platforms.arxiv import ArxivSearcher
@@ -38,6 +39,25 @@ scihub_fetcher = SciHubFetcher()
 hal_searcher = HALSearcher()
 ssrn_searcher = SSRNSearcher()
 dblp_searcher = DBLPSearcher()
+
+
+def _apply_filename(result: str, filename: Optional[str]) -> str:
+    """Rename a downloaded file if a custom filename was provided.
+
+    Args:
+        result: The return value from a download method (file path or error string).
+        filename: Optional custom filename. '.pdf' extension is added if missing.
+
+    Returns:
+        The new file path, or the original result if no rename was needed.
+    """
+    if not filename or not os.path.isfile(result):
+        return result
+    if not filename.lower().endswith('.pdf'):
+        filename += '.pdf'
+    new_path = os.path.join(os.path.dirname(result), filename)
+    os.rename(result, new_path)
+    return new_path
 
 
 # Synchronous helper to adapt synchronous searchers
@@ -139,71 +159,81 @@ async def search_iacr(
 
 
 @mcp.tool()
-async def download_arxiv(paper_id: str, save_path: str = "./downloads") -> str:
+async def download_arxiv(paper_id: str, save_path: str = "./downloads", filename: Optional[str] = None) -> str:
     """Download PDF of an arXiv paper.
 
     Args:
         paper_id: arXiv paper ID (e.g., '2106.12345').
         save_path: Directory to save the PDF (default: './downloads').
+        filename: Optional custom filename for the saved PDF (e.g., 'my_paper.pdf').
     Returns:
         Path to the downloaded PDF file.
     """
-    return arxiv_searcher.download_pdf(paper_id, save_path)
+    result = arxiv_searcher.download_pdf(paper_id, save_path)
+    return _apply_filename(result, filename)
 
 
 @mcp.tool()
-async def download_pubmed(paper_id: str, save_path: str = "./downloads") -> str:
+async def download_pubmed(paper_id: str, save_path: str = "./downloads", filename: Optional[str] = None) -> str:
     """Attempt to download PDF of a PubMed paper.
 
     Args:
         paper_id: PubMed ID (PMID).
         save_path: Directory to save the PDF (default: './downloads').
+        filename: Optional custom filename for the saved PDF (e.g., 'my_paper.pdf').
     Returns:
         str: Message indicating that direct PDF download is not supported.
     """
     try:
-        return pubmed_searcher.download_pdf(paper_id, save_path)
+        result = pubmed_searcher.download_pdf(paper_id, save_path)
+        return _apply_filename(result, filename)
     except NotImplementedError as e:
         return str(e)
 
 
 @mcp.tool()
-async def download_biorxiv(paper_id: str, save_path: str = "./downloads") -> str:
+async def download_biorxiv(paper_id: str, save_path: str = "./downloads", filename: Optional[str] = None) -> str:
     """Download PDF of a bioRxiv paper.
 
     Args:
         paper_id: bioRxiv DOI.
         save_path: Directory to save the PDF (default: './downloads').
+        filename: Optional custom filename for the saved PDF (e.g., 'my_paper.pdf').
     Returns:
         Path to the downloaded PDF file.
     """
-    return biorxiv_searcher.download_pdf(paper_id, save_path)
+    result = biorxiv_searcher.download_pdf(paper_id, save_path)
+    return _apply_filename(result, filename)
 
 
 @mcp.tool()
-async def download_medrxiv(paper_id: str, save_path: str = "./downloads") -> str:
+async def download_medrxiv(paper_id: str, save_path: str = "./downloads", filename: Optional[str] = None) -> str:
     """Download PDF of a medRxiv paper.
 
     Args:
         paper_id: medRxiv DOI.
         save_path: Directory to save the PDF (default: './downloads').
+        filename: Optional custom filename for the saved PDF (e.g., 'my_paper.pdf').
     Returns:
         Path to the downloaded PDF file.
     """
-    return medrxiv_searcher.download_pdf(paper_id, save_path)
+    result = medrxiv_searcher.download_pdf(paper_id, save_path)
+    return _apply_filename(result, filename)
 
 
 @mcp.tool()
-async def download_iacr(paper_id: str, save_path: str = "./downloads") -> str:
+async def download_iacr(paper_id: str, save_path: str = "./downloads", filename: Optional[str] = None) -> str:
     """Download PDF of an IACR ePrint paper.
 
     Args:
         paper_id: IACR paper ID (e.g., '2009/101').
         save_path: Directory to save the PDF (default: './downloads').
+        filename: Optional custom filename for the saved PDF (e.g., 'my_paper.pdf').
     Returns:
         Path to the downloaded PDF file.
     """
-    return iacr_searcher.download_pdf(paper_id, save_path)
+    result = iacr_searcher.download_pdf(paper_id, save_path)
+    return _apply_filename(result, filename)
 
 
 @mcp.tool()
@@ -306,8 +336,8 @@ async def search_semantic(query: str, year: Optional[str] = None, max_results: i
 
 
 @mcp.tool()
-async def download_semantic(paper_id: str, save_path: str = "./downloads") -> str:
-    """Download PDF of a Semantic Scholar paper.    
+async def download_semantic(paper_id: str, save_path: str = "./downloads", filename: Optional[str] = None) -> str:
+    """Download PDF of a Semantic Scholar paper.
 
     Args:
         paper_id: Semantic Scholar paper ID, Paper identifier in one of the following formats:
@@ -320,10 +350,12 @@ async def download_semantic(paper_id: str, save_path: str = "./downloads") -> st
             - PMCID:<id> (e.g., "PMCID:2323736")
             - URL:<url> (e.g., "URL:https://arxiv.org/abs/2106.15928v1")
         save_path: Directory to save the PDF (default: './downloads').
+        filename: Optional custom filename for the saved PDF (e.g., 'my_paper.pdf').
     Returns:
         Path to the downloaded PDF file.
-    """ 
-    return semantic_searcher.download_pdf(paper_id, save_path)
+    """
+    result = semantic_searcher.download_pdf(paper_id, save_path)
+    return _apply_filename(result, filename)
 
 
 @mcp.tool()
@@ -476,21 +508,23 @@ async def get_crossref_paper_by_doi(doi: str) -> Dict:
 
 
 @mcp.tool()
-async def download_crossref(paper_id: str, save_path: str = "./downloads") -> str:
+async def download_crossref(paper_id: str, save_path: str = "./downloads", filename: Optional[str] = None) -> str:
     """Attempt to download PDF of a CrossRef paper.
 
     Args:
         paper_id: CrossRef DOI (e.g., '10.1038/nature12373').
         save_path: Directory to save the PDF (default: './downloads').
+        filename: Optional custom filename for the saved PDF (e.g., 'my_paper.pdf').
     Returns:
         str: Message indicating that direct PDF download is not supported.
-        
+
     Note:
         CrossRef is a citation database and doesn't provide direct PDF downloads.
         Use the DOI to access the paper through the publisher's website.
     """
     try:
-        return crossref_searcher.download_pdf(paper_id, save_path)
+        result = crossref_searcher.download_pdf(paper_id, save_path)
+        return _apply_filename(result, filename)
     except NotImplementedError as e:
         return str(e)
 
@@ -674,12 +708,13 @@ async def get_openalex_related(paper_id: str, max_results: int = 20) -> List[Dic
 
 
 @mcp.tool()
-async def download_openalex(paper_id: str, save_path: str = "./downloads") -> str:
+async def download_openalex(paper_id: str, save_path: str = "./downloads", filename: Optional[str] = None) -> str:
     """Download PDF of an OpenAlex paper.
 
     Args:
         paper_id: OpenAlex paper ID (e.g., 'W3124567890')
         save_path: Directory to save the PDF (default: './downloads')
+        filename: Optional custom filename for the saved PDF (e.g., 'my_paper.pdf').
 
     Returns:
         Path to downloaded PDF or error message.
@@ -688,7 +723,8 @@ async def download_openalex(paper_id: str, save_path: str = "./downloads") -> st
         OpenAlex doesn't directly host PDFs. This attempts to find and download
         from available open access sources.
     """
-    return openalex_searcher.download_pdf(paper_id, save_path)
+    result = openalex_searcher.download_pdf(paper_id, save_path)
+    return _apply_filename(result, filename)
 
 
 @mcp.tool()
@@ -716,7 +752,8 @@ async def read_openalex_paper(paper_id: str, save_path: str = "./downloads") -> 
 @mcp.tool()
 async def download_scihub(
     identifier: str,
-    save_path: str = "./downloads"
+    save_path: str = "./downloads",
+    filename: Optional[str] = None,
 ) -> str:
     """Download PDF from Sci-Hub using DOI, PMID, or URL.
 
@@ -726,6 +763,7 @@ async def download_scihub(
     Args:
         identifier: DOI (e.g., '10.1038/nature12373'), PMID, or paper URL
         save_path: Directory to save the PDF (default: './downloads')
+        filename: Optional custom filename for the saved PDF (e.g., 'my_paper.pdf').
 
     Returns:
         Path to downloaded PDF or error message.
@@ -744,7 +782,8 @@ async def download_scihub(
         Sci-Hub operates in a legal gray area. Only use for legitimate research
         purposes and ensure compliance with your local laws and institution policies.
     """
-    return scihub_fetcher.download_pdf(identifier, save_path) or f"Failed to download PDF from Sci-Hub for identifier: {identifier}"
+    result = scihub_fetcher.download_pdf(identifier, save_path) or f"Failed to download PDF from Sci-Hub for identifier: {identifier}"
+    return _apply_filename(result, filename)
 
 
 @mcp.tool()
@@ -936,12 +975,13 @@ async def get_pmc_paper(paper_id: str) -> Dict:
 
 
 @mcp.tool()
-async def download_pmc(paper_id: str, save_path: str = "./downloads") -> str:
+async def download_pmc(paper_id: str, save_path: str = "./downloads", filename: Optional[str] = None) -> str:
     """Download PDF of a PubMed Central paper.
 
     Args:
         paper_id: PMC ID (e.g., 'PMC1234567' or '1234567')
         save_path: Directory to save the PDF (default: './downloads')
+        filename: Optional custom filename for the saved PDF (e.g., 'my_paper.pdf').
 
     Returns:
         Path to downloaded PDF or error message.
@@ -949,7 +989,8 @@ async def download_pmc(paper_id: str, save_path: str = "./downloads") -> str:
     Example:
         await download_pmc("PMC1234567")
     """
-    return pmc_searcher.download_pdf(paper_id, save_path)
+    result = pmc_searcher.download_pdf(paper_id, save_path)
+    return _apply_filename(result, filename)
 
 
 @mcp.tool()
@@ -1065,12 +1106,13 @@ async def get_hal_document(doc_id: str) -> Dict:
 
 
 @mcp.tool()
-async def download_hal(doc_id: str, save_path: str = "./downloads") -> str:
+async def download_hal(doc_id: str, save_path: str = "./downloads", filename: Optional[str] = None) -> str:
     """Download PDF of a HAL document.
 
     Args:
         doc_id: HAL document ID (e.g., 'hal-01234567')
         save_path: Directory to save the PDF (default: './downloads')
+        filename: Optional custom filename for the saved PDF (e.g., 'my_paper.pdf').
 
     Returns:
         Path to downloaded PDF or error message.
@@ -1078,7 +1120,8 @@ async def download_hal(doc_id: str, save_path: str = "./downloads") -> str:
     Example:
         await download_hal("hal-01234567")
     """
-    return hal_searcher.download_file(doc_id, save_path)
+    result = hal_searcher.download_file(doc_id, save_path)
+    return _apply_filename(result, filename)
 
 
 @mcp.tool()
@@ -1182,12 +1225,13 @@ async def get_ssrn_paper(paper_id: str) -> Dict:
 
 
 @mcp.tool()
-async def download_ssrn(paper_id: str, save_path: str = "./downloads") -> str:
+async def download_ssrn(paper_id: str, save_path: str = "./downloads", filename: Optional[str] = None) -> str:
     """Download PDF of an SSRN paper.
 
     Args:
         paper_id: SSRN paper ID (e.g., '1234567')
         save_path: Directory to save the PDF (default: './downloads')
+        filename: Optional custom filename for the saved PDF (e.g., 'my_paper.pdf').
 
     Returns:
         Path to downloaded PDF or error message.
@@ -1199,7 +1243,8 @@ async def download_ssrn(paper_id: str, save_path: str = "./downloads") -> str:
     Example:
         await download_ssrn("1234567")
     """
-    return ssrn_searcher.download_pdf(paper_id, save_path)
+    result = ssrn_searcher.download_pdf(paper_id, save_path)
+    return _apply_filename(result, filename)
 
 
 @mcp.tool()
