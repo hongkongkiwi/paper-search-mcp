@@ -3,7 +3,7 @@ import requests
 import os
 from datetime import datetime, timedelta
 from ..paper import Paper
-from ..http_status import raise_if_http_error
+from ..http_status import raise_if_http_error, is_pdf_response, non_pdf_error
 from PyPDF2 import PdfReader
 
 class PaperSource:
@@ -119,6 +119,8 @@ class BioRxivSearcher(PaperSource):
                 }
                 response = self.session.get(pdf_url, timeout=self.timeout, headers=headers)
                 response.raise_for_status()
+                if not is_pdf_response(response):
+                    return non_pdf_error(response)
                 os.makedirs(save_path, exist_ok=True)
                 output_file = f"{save_path}/{paper_id.replace('/', '_')}.pdf"
                 with open(output_file, 'wb') as f:

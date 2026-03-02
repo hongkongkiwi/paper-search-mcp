@@ -13,7 +13,7 @@ import logging
 import time
 
 from ..paper import Paper
-from ..http_status import raise_for_status, raise_if_http_error
+from ..http_status import raise_for_status, raise_if_http_error, is_pdf_response, non_pdf_error
 
 logger = logging.getLogger(__name__)
 
@@ -332,18 +332,16 @@ class SSRNSearcher:
             response = self.session.get(download_url, timeout=60)
             raise_for_status(response, f"SSRN PDF download failed for {paper_id}")
 
-            content_type = response.headers.get("Content-Type", "")
+            if not is_pdf_response(response):
+                return non_pdf_error(response)
 
-            if "pdf" in content_type.lower() or len(response.content) > 1000:
-                filename = f"ssrn_{paper_id}.pdf"
-                file_path = os.path.join(save_path, filename)
+            filename = f"ssrn_{paper_id}.pdf"
+            file_path = os.path.join(save_path, filename)
 
-                with open(file_path, 'wb') as f:
-                    f.write(response.content)
+            with open(file_path, 'wb') as f:
+                f.write(response.content)
 
-                return file_path
-
-            return f"PDF not available for {paper_id}"
+            return file_path
 
         except Exception as e:
             logger.error(f"Error downloading SSRN PDF: {e}")

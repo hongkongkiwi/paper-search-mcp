@@ -4,7 +4,7 @@ from datetime import datetime
 import requests
 import feedparser
 from ..paper import Paper
-from ..http_status import raise_for_status, raise_if_http_error
+from ..http_status import raise_for_status, raise_if_http_error, is_pdf_response, non_pdf_error
 from PyPDF2 import PdfReader
 import os
 
@@ -87,6 +87,9 @@ class ArxivSearcher(PaperSource):
         try:
             response = requests.get(pdf_url, timeout=60)
             raise_for_status(response, f"arXiv PDF download failed for {paper_id}")
+
+            if not is_pdf_response(response):
+                return non_pdf_error(response)
 
             # Ensure directory exists
             os.makedirs(save_path, exist_ok=True)

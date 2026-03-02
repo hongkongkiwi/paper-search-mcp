@@ -5,7 +5,7 @@ from bs4 import BeautifulSoup
 import time
 import random
 from ..paper import Paper
-from ..http_status import raise_for_status, raise_if_http_error
+from ..http_status import raise_for_status, raise_if_http_error, is_pdf_response, non_pdf_error
 import logging
 from PyPDF2 import PdfReader
 import os
@@ -218,13 +218,14 @@ class IACRSearcher(PaperSource):
 
             response = self.session.get(pdf_url)
 
-            if response.status_code == 200:
-                filename = f"{save_path}/iacr_{paper_id.replace('/', '_')}.pdf"
-                with open(filename, "wb") as f:
-                    f.write(response.content)
-                return filename
-            else:
+            if response.status_code != 200:
                 return f"Failed to download PDF: HTTP {response.status_code}"
+            if not is_pdf_response(response):
+                return non_pdf_error(response)
+            filename = f"{save_path}/iacr_{paper_id.replace('/', '_')}.pdf"
+            with open(filename, "wb") as f:
+                f.write(response.content)
+            return filename
 
         except Exception as e:
             logger.error(f"PDF download error: {e}")

@@ -9,7 +9,7 @@ from datetime import datetime
 import requests
 import xml.etree.ElementTree as ET
 from ..paper import Paper
-from ..http_status import raise_for_status, raise_if_http_error
+from ..http_status import raise_for_status, raise_if_http_error, is_pdf_response, non_pdf_error
 from PyPDF2 import PdfReader
 import os
 import logging
@@ -264,6 +264,9 @@ class PMCSearcher:
             response = self.session.get(pdf_url, timeout=30)
             raise_for_status(response, f"PMC PDF download failed for {full_pmcid}")
 
+            if not is_pdf_response(response):
+                return non_pdf_error(response)
+
             filename = f"{full_pmcid}.pdf"
             file_path = os.path.join(save_path, filename)
 
@@ -288,7 +291,7 @@ class PMCSearcher:
         """
         pdf_path = self.download_pdf(paper_id, save_path)
 
-        if pdf_path.startswith("Failed"):
+        if not os.path.isfile(pdf_path):
             return pdf_path
 
         try:

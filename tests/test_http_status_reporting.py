@@ -8,6 +8,7 @@ import requests
 from paper_search_mcp import server
 from paper_search_mcp.academic_platforms.sci_hub import SciHubFetcher
 from paper_search_mcp.academic_platforms.semantic import SemanticSearcher
+from paper_search_mcp.http_status import is_pdf_response
 from paper_search_mcp.paper import Paper
 
 
@@ -97,6 +98,7 @@ class TestHttpStatusReporting(unittest.TestCase):
             pdf_url="https://example.com/paper.pdf",
             url="https://example.com/paper",
             source="openalex",
+            extra={"open_access": {"is_oa": True}, "has_fulltext": True},
         )
         response = status_response(403, "Forbidden")
 
@@ -105,6 +107,61 @@ class TestHttpStatusReporting(unittest.TestCase):
                 result = asyncio.run(server.read_openalex_paper("W123"))
 
         self.assertIn("HTTP 403 Forbidden", result)
+
+    def test_is_pdf_response_accepts_pdf_content_type(self):
+        response = Mock()
+        response.headers = {"Content-Type": "application/pdf"}
+        response.content = b"<!DOCTYPE html>"  # header wins
+        self.assertTrue(is_pdf_response(response))
+
+    def test_is_pdf_response_accepts_pdf_magic_bytes(self):
+        response = Mock()
+        response.headers = {"Content-Type": "text/html; charset=utf-8"}
+        response.content = b"%PDF-1.4\n..."
+        self.assertTrue(is_pdf_response(response))
+
+    def test_is_pdf_response_rejects_html_challenge_page(self):
+        response = Mock()
+        response.headers = {"Content-Type": "text/html; charset=utf-8"}
+        response.content = b"<!DOCTYPE html><html><head>Just a moment...</head>"
+        self.assertFalse(is_pdf_response(response))
+
+    def test_download_openalex_rejects_non_pdf_content(self):
+        paper = Paper(
+            paper_id="W123", title="Test", authors=["Ada"], abstract="",
+            doi="", published_date=datetime(2024, 1, 1),
+            pdf_url="https://example.com/paper.pdf",
+            url="https://example.com/paper", source="openalex",
+            extra={"open_access": {"is_oa": True}, "has_fulltext": True},
+        )
+        response = Mock()
+        response.status_code = 200
+        response.reason = "OK"
+        response.headers = {"Content-Type": "text/html"}
+        response.content = b"<!DOCTYPE html>"
+
+        with patch.object(server.openalex_searcher, "get_paper_by_id", return_value=paper):
+            with patch.object(server.openalex_searcher.session, "get", return_value=response):
+                result = server.openalex_searcher.download_pdf("W123", "/tmp/claude")
+
+        self.assertIn("non-PDF content", result)
+
+    def test_download_openalex_skips_paywalled_paper(self):
+        paper = Paper(
+            paper_id="W999", title="Paywalled", authors=["Ada"], abstract="",
+            doi="", published_date=datetime(2024, 1, 1),
+            pdf_url="https://example.com/paper.pdf",
+            url="https://example.com/paper", source="openalex",
+            extra={"open_access": {"is_oa": False}, "has_fulltext": False},
+        )
+
+        with patch.object(server.openalex_searcher, "get_paper_by_id", return_value=paper):
+            with patch.object(server.openalex_searcher.session, "get") as mock_get:
+                result = server.openalex_searcher.download_pdf("W999", "/tmp/claude")
+
+        mock_get.assert_not_called()
+        self.assertIn("is_oa=false", result)
+        self.assertIn("has_fulltext=false", result)
 
     def test_download_scihub_reports_mirror_statuses(self):
         fetcher = SciHubFetcher(mirrors=["https://mirror-1", "https://mirror-2"])

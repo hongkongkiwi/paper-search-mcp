@@ -10,7 +10,7 @@ from PyPDF2 import PdfReader
 import os
 import re
 
-from ..http_status import raise_for_status, raise_if_http_error
+from ..http_status import raise_for_status, raise_if_http_error, is_pdf_response, non_pdf_error
 
 logger = logging.getLogger(__name__)
 
@@ -66,41 +66,38 @@ class SemanticSearcher(PaperSource):
             return None
 
     def _extract_url_from_disclaimer(self, disclaimer: str) -> str:
-        """Extract URL from disclaimer text"""
-        # 匹配常见的 URL 模式
-        url_patterns = [
-            r'https?://[^\s,)]+',  # 基本的 HTTP/HTTPS URL
-            r'https?://arxiv\.org/abs/[^\s,)]+',  # arXiv 链接
-            r'https?://[^\s,)]*\.pdf',  # PDF 文件链接
-        ]
-        
-        all_urls = []
-        for pattern in url_patterns:
-            matches = re.findall(pattern, disclaimer)
-            all_urls.extend(matches)
-        
+        """Extract a direct PDF URL from disclaimer text.
+
+        Only returns URLs that are likely to be actual PDFs (e.g., arXiv,
+        europepmc, direct .pdf links). Excludes publisher landing pages
+        (doi.org) and metadata APIs (unpaywall.org) which return HTML.
+        """
+        all_urls = re.findall(r'https?://[^\s,)]+', disclaimer)
+
         if not all_urls:
             return ""
-        
-        doi_urls = [url for url in all_urls if 'doi.org' in url]
-        if doi_urls:
-            return doi_urls[0]
-        
-        non_unpaywall_urls = [url for url in all_urls if 'unpaywall.org' not in url]
-        if non_unpaywall_urls:
-            url = non_unpaywall_urls[0]
+
+        # Filter out URLs that are known to be landing pages, not PDFs
+        landing_page_domains = ['doi.org', 'unpaywall.org']
+        candidate_urls = [
+            url for url in all_urls
+            if not any(domain in url for domain in landing_page_domains)
+        ]
+
+        # Prefer direct PDF links
+        pdf_urls = [url for url in candidate_urls if url.endswith('.pdf')]
+        if pdf_urls:
+            return pdf_urls[0]
+
+        # Convert arXiv abstract URLs to PDF URLs
+        for url in candidate_urls:
             if 'arxiv.org/abs/' in url:
-                pdf_url = url.replace('/abs/', '/pdf/')
-                return pdf_url
-            return url
-        
-        if all_urls:
-            url = all_urls[0]
-            if 'arxiv.org/abs/' in url:
-                pdf_url = url.replace('/abs/', '/pdf/')
-                return pdf_url
-            return url
-        
+                return url.replace('/abs/', '/pdf/')
+
+        # Return first remaining candidate (e.g., europepmc render links)
+        if candidate_urls:
+            return candidate_urls[0]
+
         return ""
 
     def _parse_paper(self, item) -> Optional[Paper]:
@@ -111,15 +108,15 @@ class SemanticSearcher(PaperSource):
             # Parse the publication date
             published_date = self._parse_date(item.get('publicationDate', ''))
             
-            # Safely get PDF URL - 支持从 disclaimer 中提取
+            # Safely get PDF URL from openAccessPdf field
             pdf_url = ""
             if item.get('openAccessPdf'):
                 open_access_pdf = item['openAccessPdf']
-                # 首先尝试直接获取 URL
+                # Use the direct URL if available
                 if open_access_pdf.get('url'):
                     pdf_url = open_access_pdf['url']
-                # 如果 URL 为空但有 disclaimer，尝试从 disclaimer 中提取
-                elif open_access_pdf.get('disclaimer'):
+                # Only try disclaimer extraction if paper is not closed-access
+                elif open_access_pdf.get('status') != 'CLOSED' and open_access_pdf.get('disclaimer'):
                     pdf_url = self._extract_url_from_disclaimer(open_access_pdf['disclaimer'])
             
             # Safely get DOI
@@ -221,7 +218,7 @@ class SemanticSearcher(PaperSource):
         papers = []
 
         try:
-            fields = ["title", "abstract", "year", "citationCount", "authors", "url","publicationDate","externalIds","fieldsOfStudy"]
+            fields = ["title", "abstract", "year", "citationCount", "authors", "url","publicationDate","externalIds","fieldsOfStudy","openAccessPdf"]
             # Construct search parameters
             params = {
                 "query": query,
@@ -279,10 +276,14 @@ class SemanticSearcher(PaperSource):
         try:
             paper = self.get_paper_details(paper_id)
             if not paper or not paper.pdf_url:
-                return f"Error: Could not find PDF URL for paper {paper_id}"
+                return f"Error: Could not find open-access PDF URL for paper {paper_id}. The paper may be behind a paywall."
             pdf_url = paper.pdf_url
             pdf_response = self.session.get(pdf_url, timeout=30)
             pdf_response.raise_for_status()
+
+            if not is_pdf_response(pdf_response):
+                logger.warning(f"URL {pdf_url} returned {pdf_response.headers.get('Content-Type', 'unknown')} instead of PDF")
+                return non_pdf_error(pdf_response)
 
             # Create download directory if it doesn't exist
             os.makedirs(save_path, exist_ok=True)
@@ -320,11 +321,14 @@ class SemanticSearcher(PaperSource):
             # First get paper details to get the PDF URL
             paper = self.get_paper_details(paper_id)
             if not paper or not paper.pdf_url:
-                return f"Error: Could not find PDF URL for paper {paper_id}"
+                return f"Error: Could not find open-access PDF URL for paper {paper_id}. The paper may be behind a paywall."
 
             # Download the PDF using session
             pdf_response = self.session.get(paper.pdf_url, timeout=30)
             pdf_response.raise_for_status()
+
+            if not is_pdf_response(pdf_response):
+                return non_pdf_error(pdf_response)
 
             # Create download directory if it doesn't exist
             os.makedirs(save_path, exist_ok=True)
@@ -393,11 +397,11 @@ class SemanticSearcher(PaperSource):
             Paper: Detailed paper object with full metadata
         """
         try:
-            fields = ["title", "abstract", "year", "citationCount", "authors", "url","publicationDate","externalIds","fieldsOfStudy"]
+            fields = ["title", "abstract", "year", "citationCount", "authors", "url","publicationDate","externalIds","fieldsOfStudy","openAccessPdf"]
             params = {
                 "fields": ",".join(fields),
             }
-            
+
             response = self.request_api(f"paper/{paper_id}", params)
             results = response.json()
             paper = self._parse_paper(results)

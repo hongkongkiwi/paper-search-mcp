@@ -23,3 +23,14 @@ def raise_if_http_error(error: Exception, context: str) -> None:
         raise error
     if isinstance(error, requests.RequestException) and error.response is not None:
         raise HttpStatusError(_message(context, error.response)) from error
+
+
+def is_pdf_response(response: requests.Response) -> bool:
+    if "application/pdf" in response.headers.get("Content-Type", ""):
+        return True
+    return response.content[:5] == b"%PDF-"
+
+
+def non_pdf_error(response: requests.Response) -> str:
+    content_type = response.headers.get("Content-Type", "unknown")
+    return f"Error: URL returned non-PDF content (Content-Type: {content_type}). Paper may be paywalled or gated."

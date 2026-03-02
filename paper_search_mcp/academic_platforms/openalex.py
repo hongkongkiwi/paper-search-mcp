@@ -9,7 +9,7 @@ from datetime import datetime
 import time
 import requests
 from ..paper import Paper
-from ..http_status import raise_for_status, raise_if_http_error
+from ..http_status import raise_for_status, raise_if_http_error, is_pdf_response, non_pdf_error
 from PyPDF2 import PdfReader
 import os
 
@@ -493,6 +493,11 @@ class OpenAlexSearcher:
         if not paper:
             return f"Paper {paper_id} not found"
 
+        is_oa = paper.extra.get("open_access", {}).get("is_oa", False)
+        has_fulltext = paper.extra.get("has_fulltext", False)
+        if not is_oa and not has_fulltext:
+            return f"Paper {paper_id} is not available for download: OpenAlex reports is_oa=false and has_fulltext=false."
+
         pdf_url = paper.pdf_url
         if not pdf_url:
             # Try to get PDF from best_oa_location
@@ -502,6 +507,9 @@ class OpenAlexSearcher:
             os.makedirs(save_path, exist_ok=True)
             response = self.session.get(pdf_url, timeout=30)
             raise_for_status(response, f"OpenAlex PDF download failed for {paper_id}")
+
+            if not is_pdf_response(response):
+                return non_pdf_error(response)
 
             filename = f"{paper_id.replace('/', '_')}.pdf"
             file_path = os.path.join(save_path, filename)
@@ -525,7 +533,7 @@ class OpenAlexSearcher:
         """
         pdf_path = self.download_pdf(paper_id, save_path)
 
-        if pdf_path.startswith("Failed") or pdf_path.startswith("No PDF"):
+        if not os.path.isfile(pdf_path):
             return pdf_path
 
         try:
