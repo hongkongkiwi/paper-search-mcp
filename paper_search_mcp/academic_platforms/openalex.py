@@ -77,10 +77,9 @@ class OpenAlexSearcher:
         # Add year filter if provided
         if year:
             if "-" in year:
-                # Year range
-                params["filter"] = f"from_publication_date:{year}"
+                start, end = year.split("-")
+                params["filter"] = f"from_publication_date:{start}-01-01,to_publication_date:{end}-12-31"
             else:
-                # Single year
                 params["filter"] = f"publication_year:{year}"
 
         # Add additional filters from kwargs
@@ -218,14 +217,17 @@ class OpenAlexSearcher:
         Returns:
             List of Paper objects referenced by the given paper
         """
-        if openalex_id.startswith("http"):
-            openalex_id = openalex_id.split("/")[-1]
+        paper = self.get_paper_by_id(openalex_id)
+        if not paper or not paper.references:
+            return []
 
+        # OpenAlex OR-list filter caps at 100 IDs
+        ref_ids = paper.references[:min(max_results, 100)]
         url = f"{self.BASE_URL}/works"
         params = {
-            "filter": f"referenced_by:{openalex_id}",
-            "per-page": max_results,
-            "mailto": self.EMAIL_PARAM
+            "filter": f"openalex_id:{'|'.join(ref_ids)}",
+            "per-page": len(ref_ids),
+            "mailto": self.EMAIL_PARAM,
         }
 
         try:
@@ -235,9 +237,9 @@ class OpenAlexSearcher:
 
             papers = []
             for work in data.get("results", []):
-                paper = self._parse_work(work)
-                if paper:
-                    papers.append(paper)
+                parsed = self._parse_work(work)
+                if parsed:
+                    papers.append(parsed)
             return papers
         except Exception as e:
             raise_if_http_error(e, f"OpenAlex references lookup failed for {openalex_id}")
@@ -328,9 +330,8 @@ class OpenAlexSearcher:
 
         url = f"{self.BASE_URL}/works"
         params = {
-            "filter": f"has_concepts:{openalex_id}",
+            "filter": f"related_to:{openalex_id}",
             "per-page": max_results,
-            "sort": "cited_by_count:desc",
             "mailto": self.EMAIL_PARAM
         }
 
