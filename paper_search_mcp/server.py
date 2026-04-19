@@ -25,6 +25,7 @@ from .academic_platforms.hal import HALSearcher
 from .academic_platforms.ssrn import SSRNSearcher
 from .academic_platforms.dblp import DBLPSearcher
 from .deduplication import deduplicate_paper_dicts, merge_duplicate_papers, dict_to_paper, find_duplicates
+from . import cross_source
 
 from .paper import Paper
 
@@ -1717,6 +1718,146 @@ async def get_dblp_top_journals() -> List[Dict]:
         journals = await get_dblp_top_journals()
     """
     return dblp_searcher.get_top_journals()
+
+
+@mcp.tool()
+async def doi_cross_download(
+    doi: str,
+    save_path: str = "./downloads",
+    filename: Optional[str] = None,
+    allow_scihub: bool = True,
+    ctx: Context = None,
+) -> Dict:
+    """Download a PDF for a DOI by trying every source that can serve it.
+
+    Sources tried (in order): Sci-Hub (unless disabled), bioRxiv and medRxiv
+    (only for 10.1101/ DOIs), OpenAlex, Semantic Scholar (last, often slow).
+
+    Args:
+        doi: DOI of the paper (e.g., '10.1101/2021.03.01.433208').
+        save_path: Directory to save the PDF (default: './downloads').
+        filename: Optional custom filename for the saved PDF.
+        allow_scihub: Include Sci-Hub as final fallback (default: True).
+
+    Returns:
+        Dict with 'path', 'source', 'attempts' on success, or
+        'error' + 'attempts' on failure.
+    """
+    try:
+        save_path = await _resolve_save_path(save_path, ctx)
+        result = cross_source.doi_download(
+            doi, save_path,
+            biorxiv_searcher, medrxiv_searcher, semantic_searcher,
+            openalex_searcher, scihub_fetcher, allow_scihub,
+        )
+        if "path" in result:
+            result["path"] = _apply_filename(result["path"], filename)
+        return result
+    except Exception as e:
+        logger.error(f"doi_cross_download failed: {e}")
+        return {"error": f"doi_cross_download failed for {doi}: {type(e).__name__}: {e}", "attempts": []}
+
+
+@mcp.tool()
+async def doi_cross_read(
+    doi: str,
+    save_path: str = "./downloads",
+    allow_scihub: bool = True,
+    ctx: Context = None,
+) -> Dict:
+    """Read extracted text for a DOI by trying every source that can serve it.
+
+    Sources are tried in the same order as doi_cross_download; the first
+    successful PDF is downloaded and its text extracted.
+
+    Args:
+        doi: DOI of the paper.
+        save_path: Directory where the PDF is saved (default: './downloads').
+        allow_scihub: Include Sci-Hub as final fallback (default: True).
+
+    Returns:
+        Dict with 'text', 'path', 'source', 'attempts' on success, or
+        'error' + 'attempts' on failure.
+    """
+    try:
+        save_path = await _resolve_save_path(save_path, ctx)
+        return cross_source.doi_read(
+            doi, save_path,
+            biorxiv_searcher, medrxiv_searcher, semantic_searcher,
+            openalex_searcher, scihub_fetcher, allow_scihub,
+        )
+    except Exception as e:
+        logger.error(f"doi_cross_read failed: {e}")
+        return {"error": f"doi_cross_read failed for {doi}: {type(e).__name__}: {e}", "attempts": []}
+
+
+@mcp.tool()
+async def pmid_cross_download(
+    pmid: str,
+    save_path: str = "./downloads",
+    filename: Optional[str] = None,
+    allow_scihub: bool = True,
+    ctx: Context = None,
+) -> Dict:
+    """Download a PDF for a PMID by trying every source that can serve it.
+
+    Sources tried (in order): Sci-Hub (unless disabled), PMC (if the PMID
+    links to a PMCID via NCBI elink), Semantic Scholar (last, often slow).
+
+    Args:
+        pmid: PubMed ID (numeric, e.g., '19872477').
+        save_path: Directory to save the PDF (default: './downloads').
+        filename: Optional custom filename for the saved PDF.
+        allow_scihub: Include Sci-Hub as final fallback (default: True).
+
+    Returns:
+        Dict with 'path', 'source', 'attempts' on success, or
+        'error' + 'attempts' on failure.
+    """
+    try:
+        save_path = await _resolve_save_path(save_path, ctx)
+        result = cross_source.pmid_download(
+            pmid, save_path,
+            semantic_searcher, pmc_searcher, scihub_fetcher, allow_scihub,
+        )
+        if "path" in result:
+            result["path"] = _apply_filename(result["path"], filename)
+        return result
+    except Exception as e:
+        logger.error(f"pmid_cross_download failed: {e}")
+        return {"error": f"pmid_cross_download failed for {pmid}: {type(e).__name__}: {e}", "attempts": []}
+
+
+@mcp.tool()
+async def pmid_cross_read(
+    pmid: str,
+    save_path: str = "./downloads",
+    allow_scihub: bool = True,
+    ctx: Context = None,
+) -> Dict:
+    """Read extracted text for a PMID by trying every source that can serve it.
+
+    Sources are tried in the same order as pmid_cross_download; the first
+    successful PDF is downloaded and its text extracted.
+
+    Args:
+        pmid: PubMed ID (numeric).
+        save_path: Directory where the PDF is saved (default: './downloads').
+        allow_scihub: Include Sci-Hub as final fallback (default: True).
+
+    Returns:
+        Dict with 'text', 'path', 'source', 'attempts' on success, or
+        'error' + 'attempts' on failure.
+    """
+    try:
+        save_path = await _resolve_save_path(save_path, ctx)
+        return cross_source.pmid_read(
+            pmid, save_path,
+            semantic_searcher, pmc_searcher, scihub_fetcher, allow_scihub,
+        )
+    except Exception as e:
+        logger.error(f"pmid_cross_read failed: {e}")
+        return {"error": f"pmid_cross_read failed for {pmid}: {type(e).__name__}: {e}", "attempts": []}
 
 
 def main():
