@@ -3,9 +3,12 @@ from typing import List, Dict, Optional
 import os
 import logging
 import httpx
+from urllib.parse import urlparse, unquote
+from urllib.request import url2pathname
 
 logger = logging.getLogger(__name__)
-from mcp.server.fastmcp import FastMCP
+import mcp.types as types
+from mcp.server.fastmcp import FastMCP, Context
 from .academic_platforms.arxiv import ArxivSearcher
 from .academic_platforms.pubmed import PubMedSearcher
 from .academic_platforms.biorxiv import BioRxivSearcher
@@ -61,6 +64,34 @@ def _apply_filename(result: str, filename: Optional[str]) -> str:
     new_path = os.path.join(os.path.dirname(result), filename)
     os.rename(result, new_path)
     return new_path
+
+
+def _file_uri_to_path(uri: str) -> str:
+    parsed = urlparse(uri)
+    assert parsed.scheme == "file"
+
+    path = url2pathname(unquote(parsed.path))
+    if parsed.netloc and parsed.netloc != "localhost":
+        return f"//{parsed.netloc}{path}"
+
+    return path
+
+
+async def _resolve_save_path(save_path: str, ctx: Context = None) -> str:
+    if os.path.isabs(save_path) or ctx is None:
+        return save_path
+
+    supports_roots = ctx.session.check_client_capability(
+        types.ClientCapabilities(roots=types.RootsCapability())
+    )
+    if not supports_roots:
+        return save_path
+
+    roots_result = await ctx.session.list_roots()
+    assert roots_result.roots, "Client advertised roots support but returned no roots"
+
+    root_path = _file_uri_to_path(str(roots_result.roots[0].uri))
+    return os.path.normpath(os.path.join(root_path, save_path))
 
 
 # Synchronous helper to adapt synchronous searchers
@@ -186,7 +217,12 @@ async def search_iacr(
 
 
 @mcp.tool()
-async def download_arxiv(paper_id: str, save_path: str = "./downloads", filename: Optional[str] = None) -> str:
+async def download_arxiv(
+    paper_id: str,
+    save_path: str = "./downloads",
+    filename: Optional[str] = None,
+    ctx: Context = None,
+) -> str:
     """Download PDF of an arXiv paper.
 
     Args:
@@ -197,6 +233,7 @@ async def download_arxiv(paper_id: str, save_path: str = "./downloads", filename
         Path to the downloaded PDF file.
     """
     try:
+        save_path = await _resolve_save_path(save_path, ctx)
         result = arxiv_searcher.download_pdf(paper_id, save_path)
         return _apply_filename(result, filename)
     except Exception as e:
@@ -226,7 +263,12 @@ async def download_pubmed(paper_id: str, save_path: str = "./downloads", filenam
 
 
 @mcp.tool()
-async def download_biorxiv(paper_id: str, save_path: str = "./downloads", filename: Optional[str] = None) -> str:
+async def download_biorxiv(
+    paper_id: str,
+    save_path: str = "./downloads",
+    filename: Optional[str] = None,
+    ctx: Context = None,
+) -> str:
     """Download PDF of a bioRxiv paper.
 
     Args:
@@ -237,6 +279,7 @@ async def download_biorxiv(paper_id: str, save_path: str = "./downloads", filena
         Path to the downloaded PDF file.
     """
     try:
+        save_path = await _resolve_save_path(save_path, ctx)
         result = biorxiv_searcher.download_pdf(paper_id, save_path)
         return _apply_filename(result, filename)
     except Exception as e:
@@ -245,7 +288,12 @@ async def download_biorxiv(paper_id: str, save_path: str = "./downloads", filena
 
 
 @mcp.tool()
-async def download_medrxiv(paper_id: str, save_path: str = "./downloads", filename: Optional[str] = None) -> str:
+async def download_medrxiv(
+    paper_id: str,
+    save_path: str = "./downloads",
+    filename: Optional[str] = None,
+    ctx: Context = None,
+) -> str:
     """Download PDF of a medRxiv paper.
 
     Args:
@@ -256,6 +304,7 @@ async def download_medrxiv(paper_id: str, save_path: str = "./downloads", filena
         Path to the downloaded PDF file.
     """
     try:
+        save_path = await _resolve_save_path(save_path, ctx)
         result = medrxiv_searcher.download_pdf(paper_id, save_path)
         return _apply_filename(result, filename)
     except Exception as e:
@@ -264,7 +313,12 @@ async def download_medrxiv(paper_id: str, save_path: str = "./downloads", filena
 
 
 @mcp.tool()
-async def download_iacr(paper_id: str, save_path: str = "./downloads", filename: Optional[str] = None) -> str:
+async def download_iacr(
+    paper_id: str,
+    save_path: str = "./downloads",
+    filename: Optional[str] = None,
+    ctx: Context = None,
+) -> str:
     """Download PDF of an IACR ePrint paper.
 
     Args:
@@ -275,6 +329,7 @@ async def download_iacr(paper_id: str, save_path: str = "./downloads", filename:
         Path to the downloaded PDF file.
     """
     try:
+        save_path = await _resolve_save_path(save_path, ctx)
         result = iacr_searcher.download_pdf(paper_id, save_path)
         return _apply_filename(result, filename)
     except Exception as e:
@@ -390,7 +445,12 @@ async def search_semantic(query: str, year: Optional[str] = None, max_results: i
 
 
 @mcp.tool()
-async def download_semantic(paper_id: str, save_path: str = "./downloads", filename: Optional[str] = None) -> str:
+async def download_semantic(
+    paper_id: str,
+    save_path: str = "./downloads",
+    filename: Optional[str] = None,
+    ctx: Context = None,
+) -> str:
     """Download PDF of a Semantic Scholar paper.
 
     Args:
@@ -409,6 +469,7 @@ async def download_semantic(paper_id: str, save_path: str = "./downloads", filen
         Path to the downloaded PDF file.
     """
     try:
+        save_path = await _resolve_save_path(save_path, ctx)
         result = semantic_searcher.download_pdf(paper_id, save_path)
         return _apply_filename(result, filename)
     except Exception as e:
@@ -825,7 +886,12 @@ async def get_openalex_related(paper_id: str, max_results: int = 20) -> List[Dic
 
 
 @mcp.tool()
-async def download_openalex(paper_id: str, save_path: str = "./downloads", filename: Optional[str] = None) -> str:
+async def download_openalex(
+    paper_id: str,
+    save_path: str = "./downloads",
+    filename: Optional[str] = None,
+    ctx: Context = None,
+) -> str:
     """Download PDF of an OpenAlex paper.
 
     Args:
@@ -841,6 +907,7 @@ async def download_openalex(paper_id: str, save_path: str = "./downloads", filen
         from available open access sources.
     """
     try:
+        save_path = await _resolve_save_path(save_path, ctx)
         result = openalex_searcher.download_pdf(paper_id, save_path)
         return _apply_filename(result, filename)
     except Exception as e:
@@ -875,6 +942,7 @@ async def download_scihub(
     identifier: str,
     save_path: str = "./downloads",
     filename: Optional[str] = None,
+    ctx: Context = None,
 ) -> str:
     """Download PDF from Sci-Hub using DOI, PMID, or URL.
 
@@ -904,6 +972,7 @@ async def download_scihub(
         purposes and ensure compliance with your local laws and institution policies.
     """
     try:
+        save_path = await _resolve_save_path(save_path, ctx)
         result = scihub_fetcher.download_pdf(identifier, save_path)
         if not result or result.startswith("Error"):
             return result or f"Failed to download PDF from Sci-Hub for identifier: {identifier}"
@@ -1124,7 +1193,12 @@ async def get_pmc_paper(paper_id: str) -> Dict:
 
 
 @mcp.tool()
-async def download_pmc(paper_id: str, save_path: str = "./downloads", filename: Optional[str] = None) -> str:
+async def download_pmc(
+    paper_id: str,
+    save_path: str = "./downloads",
+    filename: Optional[str] = None,
+    ctx: Context = None,
+) -> str:
     """Download PDF of a PubMed Central paper.
 
     Args:
@@ -1139,6 +1213,7 @@ async def download_pmc(paper_id: str, save_path: str = "./downloads", filename: 
         await download_pmc("PMC1234567")
     """
     try:
+        save_path = await _resolve_save_path(save_path, ctx)
         result = pmc_searcher.download_pdf(paper_id, save_path)
         return _apply_filename(result, filename)
     except Exception as e:
@@ -1271,7 +1346,12 @@ async def get_hal_document(doc_id: str) -> Dict:
 
 
 @mcp.tool()
-async def download_hal(doc_id: str, save_path: str = "./downloads", filename: Optional[str] = None) -> str:
+async def download_hal(
+    doc_id: str,
+    save_path: str = "./downloads",
+    filename: Optional[str] = None,
+    ctx: Context = None,
+) -> str:
     """Download PDF of a HAL document.
 
     Args:
@@ -1286,6 +1366,7 @@ async def download_hal(doc_id: str, save_path: str = "./downloads", filename: Op
         await download_hal("hal-01234567")
     """
     try:
+        save_path = await _resolve_save_path(save_path, ctx)
         result = hal_searcher.download_file(doc_id, save_path)
         return _apply_filename(result, filename)
     except Exception as e:
@@ -1398,7 +1479,12 @@ async def get_ssrn_paper(paper_id: str) -> Dict:
 
 
 @mcp.tool()
-async def download_ssrn(paper_id: str, save_path: str = "./downloads", filename: Optional[str] = None) -> str:
+async def download_ssrn(
+    paper_id: str,
+    save_path: str = "./downloads",
+    filename: Optional[str] = None,
+    ctx: Context = None,
+) -> str:
     """Download PDF of an SSRN paper.
 
     Args:
@@ -1416,6 +1502,7 @@ async def download_ssrn(paper_id: str, save_path: str = "./downloads", filename:
     Example:
         await download_ssrn("1234567")
     """
+    save_path = await _resolve_save_path(save_path, ctx)
     result = ssrn_searcher.download_pdf(paper_id, save_path)
     return _apply_filename(result, filename)
 

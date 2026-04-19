@@ -2,6 +2,9 @@
 import unittest
 import asyncio
 import os
+import tempfile
+from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 from paper_search_mcp import server
 
@@ -21,6 +24,34 @@ class TestPaperSearchServer(unittest.TestCase):
             result = asyncio.run(server.download_crossref("10.1000/example"))
 
         self.assertEqual(result, message)
+
+    def test_download_semantic_uses_client_root_for_relative_save_path(self):
+        with tempfile.TemporaryDirectory() as workspace_dir:
+            expected_path = os.path.join(workspace_dir, "downloads")
+
+            class FakeSession:
+                def check_client_capability(self, capability):
+                    return True
+
+                async def list_roots(self):
+                    root = SimpleNamespace(uri=Path(workspace_dir).as_uri())
+                    return SimpleNamespace(roots=[root])
+
+            ctx = SimpleNamespace(session=FakeSession())
+
+            def fake_download_pdf(paper_id, save_path):
+                self.assertEqual(save_path, expected_path)
+                return os.path.join(save_path, "paper.pdf")
+
+            with patch.object(server.semantic_searcher, "download_pdf", side_effect=fake_download_pdf):
+                result = asyncio.run(
+                    server.download_semantic(
+                        "DOI:10.1186/s13071-023-06098-0",
+                        ctx=ctx,
+                    )
+                )
+
+        self.assertEqual(result, os.path.join(expected_path, "paper.pdf"))
 
     def test_search_arxiv(self):
         """Test the search_arxiv tool returns 10 results."""
