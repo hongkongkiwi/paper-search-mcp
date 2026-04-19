@@ -1,16 +1,11 @@
 """Tests for CrossRef searcher."""
 import unittest
-import requests
 from paper_search_mcp.academic_platforms.crossref import CrossRefSearcher
+from tests.network import check_url_accessible
 
 
 def check_crossref_accessible():
-    """Check if CrossRef API is accessible."""
-    try:
-        response = requests.get("https://api.crossref.org/works", timeout=5)
-        return response.status_code == 200
-    except:
-        return False
+    return check_url_accessible("https://api.crossref.org/works")
 
 
 class TestCrossRefSearcher(unittest.TestCase):

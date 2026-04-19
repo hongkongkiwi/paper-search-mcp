@@ -1,16 +1,11 @@
 """Tests for HAL searcher."""
 import unittest
-import requests
 from paper_search_mcp.academic_platforms.hal import HALSearcher
+from tests.network import check_url_accessible
 
 
 def check_hal_accessible():
-    """Check if HAL API is accessible."""
-    try:
-        response = requests.get("https://hal.science/search/search?rows=1", timeout=5)
-        return response.status_code == 200
-    except:
-        return False
+    return check_url_accessible("https://hal.science/search/search?rows=1")
 
 
 class TestHALSearcher(unittest.TestCase):

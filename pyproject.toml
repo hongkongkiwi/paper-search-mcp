@@ -37,3 +37,8 @@ packages = ["paper_search_mcp"]
 
 [dependency-groups]
 dev = ["pytest>=7.0.0"]
+
+[tool.pytest.ini_options]
+markers = [
+    "network: test requires live network access",
+]

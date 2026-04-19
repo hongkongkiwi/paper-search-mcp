@@ -211,6 +211,9 @@ For developers who want to modify the code or contribute:
    # Run all tests
    uv run pytest tests/
 
+   # Full suite, including live network tests
+   uv run pytest --run-network tests/
+
    # Run specific test file
    uv run pytest tests/test_arxiv.py -v
    ```

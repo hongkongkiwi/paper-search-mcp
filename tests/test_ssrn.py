@@ -1,16 +1,14 @@
 """Tests for SSRN searcher."""
 import unittest
-import requests
 from paper_search_mcp.academic_platforms.ssrn import SSRNSearcher
+from tests.network import check_url_accessible
 
 
 def check_ssrn_accessible():
-    """Check if SSRN API is accessible."""
-    try:
-        response = requests.get("https://papers.ssrn.com/sol13/search.cgi?", timeout=5, params={"q": "test", "ma": "1"})
-        return response.status_code == 200
-    except:
-        return False
+    return check_url_accessible(
+        "https://papers.ssrn.com/sol13/search.cgi?",
+        params={"q": "test", "ma": "1"},
+    )
 
 
 class TestSSRNSearcher(unittest.TestCase):

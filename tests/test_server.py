@@ -3,11 +3,13 @@ import unittest
 import asyncio
 import os
 import tempfile
+from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 from paper_search_mcp import server
 from paper_search_mcp.academic_platforms.semantic import SemanticRateLimitError
+from paper_search_mcp.paper import Paper
 
 class TestPaperSearchServer(unittest.TestCase):
     def test_download_pubmed_returns_not_supported_message(self):
@@ -71,31 +73,91 @@ class TestPaperSearchServer(unittest.TestCase):
         self.assertEqual(result, [{"error": message, "status_code": 429}])
 
     def test_search_arxiv(self):
-        """Test the search_arxiv tool returns 10 results."""
-        result = asyncio.run(server.search_arxiv("machine learning", max_results=10))
+        """Test the search_arxiv tool serializes search results."""
+        papers = [
+            Paper(
+                paper_id="1234.5678",
+                title="Paper One",
+                authors=["Ada Lovelace"],
+                abstract="A",
+                doi="",
+                url="https://arxiv.org/abs/1234.5678",
+                pdf_url="https://arxiv.org/pdf/1234.5678.pdf",
+                published_date=datetime(2024, 1, 1),
+                updated_date=datetime(2024, 1, 2),
+                source="arxiv",
+            ),
+            Paper(
+                paper_id="2345.6789",
+                title="Paper Two",
+                authors=["Grace Hopper"],
+                abstract="B",
+                doi="",
+                url="https://arxiv.org/abs/2345.6789",
+                pdf_url="https://arxiv.org/pdf/2345.6789.pdf",
+                published_date=datetime(2024, 2, 1),
+                updated_date=datetime(2024, 2, 2),
+                source="arxiv",
+            ),
+        ]
+
+        with patch.object(server.arxiv_searcher, "search", return_value=papers):
+            result = asyncio.run(server.search_arxiv("machine learning", max_results=10))
+
         self.assertIsInstance(result, list, "Result should be a list")
-        self.assertEqual(len(result), 10, "Should return exactly 10 results")
+        self.assertEqual(len(result), 2, "Should return serialized search results")
         for paper in result:
             self.assertIn('title', paper, "Each result should contain a title")
             self.assertIn('paper_id', paper, "Each result should contain a paper_id")
 
     def test_download_arxiv_from_search(self):
-        """Test downloading 10 arXiv papers based on search results."""
-        # 先搜索 10 个结果
-        search_results = asyncio.run(server.search_arxiv("machine learning", max_results=10))
-        self.assertEqual(len(search_results), 10, "Search should return 10 results")
+        """Test downloading arXiv PDFs from search results without live network access."""
+        papers = [
+            Paper(
+                paper_id="1234.5678",
+                title="Paper One",
+                authors=["Ada Lovelace"],
+                abstract="A",
+                doi="",
+                url="https://arxiv.org/abs/1234.5678",
+                pdf_url="https://arxiv.org/pdf/1234.5678.pdf",
+                published_date=datetime(2024, 1, 1),
+                updated_date=datetime(2024, 1, 2),
+                source="arxiv",
+            ),
+            Paper(
+                paper_id="2345.6789",
+                title="Paper Two",
+                authors=["Grace Hopper"],
+                abstract="B",
+                doi="",
+                url="https://arxiv.org/abs/2345.6789",
+                pdf_url="https://arxiv.org/pdf/2345.6789.pdf",
+                published_date=datetime(2024, 2, 1),
+                updated_date=datetime(2024, 2, 2),
+                source="arxiv",
+            ),
+        ]
 
-        # 下载目录
-        save_path = "./downloads"
-        os.makedirs(save_path, exist_ok=True)  # 确保目录存在
+        with tempfile.TemporaryDirectory() as save_path:
+            def fake_download_pdf(paper_id, resolved_save_path):
+                file_path = os.path.join(resolved_save_path, f"{paper_id}.pdf")
+                with open(file_path, "wb") as handle:
+                    handle.write(b"%PDF-1.4 test")
+                return file_path
 
-        # 下载每个搜索结果的 PDF
-        for paper in search_results:
-            paper_id = paper['paper_id']
-            result = asyncio.run(server.download_arxiv(paper_id, save_path))
-            self.assertIsInstance(result, str, f"Result for {paper_id} should be a file path")
-            self.assertTrue(result.endswith(".pdf"), f"Result for {paper_id} should be a PDF file path")
-            self.assertTrue(os.path.exists(result), f"PDF file for {paper_id} should exist on disk")
+            with patch.object(server.arxiv_searcher, "search", return_value=papers):
+                search_results = asyncio.run(server.search_arxiv("machine learning", max_results=10))
+
+            self.assertEqual(len(search_results), 2, "Search should return mocked results")
+
+            with patch.object(server.arxiv_searcher, "download_pdf", side_effect=fake_download_pdf):
+                for paper in search_results:
+                    paper_id = paper['paper_id']
+                    result = asyncio.run(server.download_arxiv(paper_id, save_path))
+                    self.assertIsInstance(result, str, f"Result for {paper_id} should be a file path")
+                    self.assertTrue(result.endswith(".pdf"), f"Result for {paper_id} should be a PDF file path")
+                    self.assertTrue(os.path.exists(result), f"PDF file for {paper_id} should exist on disk")
 
 if __name__ == "__main__":
     unittest.main()

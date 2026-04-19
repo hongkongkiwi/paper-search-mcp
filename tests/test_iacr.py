@@ -1,16 +1,11 @@
 import unittest
 import os
-import requests
 from paper_search_mcp.academic_platforms.iacr import IACRSearcher
+from tests.network import check_url_accessible
 
 
 def check_iacr_accessible():
-    """Check if IACR ePrint Archive is accessible"""
-    try:
-        response = requests.get("https://eprint.iacr.org", timeout=5)
-        return response.status_code == 200
-    except:
-        return False
+    return check_url_accessible("https://eprint.iacr.org")
 
 
 class TestIACRSearcher(unittest.TestCase):
