@@ -13,6 +13,10 @@ import re
 logger = logging.getLogger(__name__)
 
 
+class SemanticRateLimitError(RuntimeError):
+    pass
+
+
 class PaperSource:
     """Abstract base class for paper sources"""
 
@@ -161,7 +165,12 @@ class SemanticSearcher(PaperSource):
         Make a request to the Semantic Scholar API with optional API key.
         """
         max_retries = 3
-        retry_delay = 2  # seconds
+        retry_delay = 1
+        rate_limit_message = (
+            f"Semantic Scholar API rate limited the request (HTTP 429) after "
+            f"{max_retries} attempts. Wait a moment and retry, or set "
+            f"SEMANTIC_SCHOLAR_API_KEY for higher limits."
+        )
         
         for attempt in range(max_retries):
             try:
@@ -173,13 +182,12 @@ class SemanticSearcher(PaperSource):
                 # 检查是否是429错误（限流）
                 if response.status_code == 429:
                     if attempt < max_retries - 1:
-                        wait_time = retry_delay * (2 ** attempt)  # 指数退避
+                        wait_time = retry_delay * (2 ** attempt)
                         logger.warning(f"Rate limited (429). Waiting {wait_time} seconds before retry {attempt + 1}/{max_retries}")
                         time.sleep(wait_time)
                         continue
-                    else:
-                        logger.error(f"Rate limited (429) after {max_retries} attempts. Please wait before making more requests.")
-                        return {"error": "rate_limited", "status_code": 429, "message": "Too many requests. Please wait before retrying."}
+                    logger.error(rate_limit_message)
+                    raise SemanticRateLimitError(rate_limit_message)
                 
                 response.raise_for_status()
                 return response
@@ -191,12 +199,13 @@ class SemanticSearcher(PaperSource):
                         logger.warning(f"Rate limited (429). Waiting {wait_time} seconds before retry {attempt + 1}/{max_retries}")
                         time.sleep(wait_time)
                         continue
-                    else:
-                        logger.error(f"Rate limited (429) after {max_retries} attempts. Please wait before making more requests.")
-                        return {"error": "rate_limited", "status_code": 429, "message": "Too many requests. Please wait before retrying."}
+                    logger.error(rate_limit_message)
+                    raise SemanticRateLimitError(rate_limit_message)
                 else:
                     logger.error(f"HTTP Error requesting API: {e}")
                     return {"error": "http_error", "status_code": e.response.status_code, "message": str(e)}
+            except SemanticRateLimitError:
+                raise
             except Exception as e:
                 logger.error(f"Error requesting API: {e}")
                 return {"error": "general_error", "message": str(e)}
@@ -266,6 +275,8 @@ class SemanticSearcher(PaperSource):
                 if paper:
                     papers.append(paper)
 
+        except SemanticRateLimitError:
+            raise
         except Exception as e:
             logger.error(f"Semantic Scholar search error: {e}")
 

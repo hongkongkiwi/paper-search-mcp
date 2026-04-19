@@ -7,6 +7,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 from paper_search_mcp import server
+from paper_search_mcp.academic_platforms.semantic import SemanticRateLimitError
 
 class TestPaperSearchServer(unittest.TestCase):
     def test_download_pubmed_returns_not_supported_message(self):
@@ -52,6 +53,22 @@ class TestPaperSearchServer(unittest.TestCase):
                 )
 
         self.assertEqual(result, os.path.join(expected_path, "paper.pdf"))
+
+    def test_search_semantic_returns_rate_limit_error(self):
+        message = (
+            "Semantic Scholar API rate limited the request (HTTP 429) after 3 "
+            "attempts. Wait a moment and retry, or set "
+            "SEMANTIC_SCHOLAR_API_KEY for higher limits."
+        )
+
+        with patch.object(
+            server.semantic_searcher,
+            "search",
+            side_effect=SemanticRateLimitError(message),
+        ):
+            result = asyncio.run(server.search_semantic("secret sharing", max_results=1))
+
+        self.assertEqual(result, [{"error": message, "status_code": 429}])
 
     def test_search_arxiv(self):
         """Test the search_arxiv tool returns 10 results."""

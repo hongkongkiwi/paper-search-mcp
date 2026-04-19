@@ -8,6 +8,7 @@ from urllib.request import url2pathname
 
 logger = logging.getLogger(__name__)
 import mcp.types as types
+from fastmcp.server import _convert_to_content
 from mcp.server.fastmcp import FastMCP, Context
 from .academic_platforms.arxiv import ArxivSearcher
 from .academic_platforms.pubmed import PubMedSearcher
@@ -15,7 +16,7 @@ from .academic_platforms.biorxiv import BioRxivSearcher
 from .academic_platforms.medrxiv import MedRxivSearcher
 from .academic_platforms.google_scholar import GoogleScholarSearcher
 from .academic_platforms.iacr import IACRSearcher
-from .academic_platforms.semantic import SemanticSearcher
+from .academic_platforms.semantic import SemanticSearcher, SemanticRateLimitError
 from .academic_platforms.crossref import CrossRefSearcher
 from .academic_platforms.openalex import OpenAlexSearcher
 from .academic_platforms.pmc import PMCSearcher
@@ -27,8 +28,18 @@ from .deduplication import deduplicate_paper_dicts, merge_duplicate_papers, dict
 
 from .paper import Paper
 
+
+class PaperSearchMCP(FastMCP):
+    async def call_tool(self, name: str, arguments: dict):
+        context = self.get_context()
+        result = await self._tool_manager.call_tool(name, arguments, context=context)
+        if isinstance(result, list) and not result:
+            return [types.TextContent(type="text", text="[]")]
+        return _convert_to_content(result)
+
+
 # Initialize MCP server
-mcp = FastMCP("paper_search_server")
+mcp = PaperSearchMCP("paper_search_server")
 
 # Instances of searchers
 arxiv_searcher = ArxivSearcher()
@@ -439,6 +450,9 @@ async def search_semantic(query: str, year: Optional[str] = None, max_results: i
             kwargs['year'] = year
         papers = sync_search(semantic_searcher, query, max_results, **kwargs)
         return papers if papers else []
+    except SemanticRateLimitError as e:
+        logger.error(f"search_semantic rate limited: {e}")
+        return [{"error": str(e), "status_code": 429}]
     except Exception as e:
         logger.error(f"search_semantic failed: {e}")
         return [{"error": f"Semantic Scholar search failed: {type(e).__name__}: {e}"}]
