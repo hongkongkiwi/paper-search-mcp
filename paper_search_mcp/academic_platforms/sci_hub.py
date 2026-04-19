@@ -51,7 +51,7 @@ class SciHubFetcher:
             Path to saved PDF or None on failure
         """
         if not identifier.strip():
-            return None
+            return "Error: empty identifier provided to Sci-Hub downloader"
 
         try:
             # Try each mirror in order, skipping known failed ones
@@ -63,19 +63,22 @@ class SciHubFetcher:
                 if pdf_url:
                     break
             if not pdf_url:
-                logging.error(f"Could not find PDF URL for identifier: {identifier}")
-                return None
+                tried = [m for m in self.mirrors if m not in self._failed_mirrors]
+                failed = list(self._failed_mirrors)
+                return (
+                    f"Error: could not find PDF URL on any Sci-Hub mirror for: {identifier}. "
+                    f"Tried mirrors: {tried}. Previously failed mirrors: {failed}"
+                )
 
             # Download the PDF
             response = self.session.get(pdf_url, verify=False, timeout=30)
 
             if response.status_code != 200:
-                logging.error(f"Failed to download PDF, status {response.status_code}")
-                return None
+                return f"Error: Sci-Hub returned HTTP {response.status_code} when downloading PDF for: {identifier}"
 
-            if response.headers.get('Content-Type') != 'application/pdf':
-                logging.error("Response is not a PDF")
-                return None
+            content_type = response.headers.get('Content-Type', 'unknown')
+            if 'application/pdf' not in content_type:
+                return f"Error: Sci-Hub returned non-PDF content (Content-Type: {content_type}) for: {identifier}"
 
             # Generate filename and save
             output_dir = Path(save_path)
@@ -90,7 +93,7 @@ class SciHubFetcher:
 
         except Exception as e:
             logging.error(f"Error downloading PDF for {identifier}: {e}")
-            return None
+            return f"Error downloading from Sci-Hub for {identifier}: {type(e).__name__}: {e}"
 
     def _get_direct_url(self, identifier: str, base_url: str) -> Optional[str]:
         """Get the direct PDF URL from a Sci-Hub mirror."""
@@ -198,8 +201,8 @@ class SciHubFetcher:
         """
         try:
             pdf_path = self.download_pdf(identifier, save_path)
-            if not pdf_path:
-                return "Failed to download PDF from Sci-Hub."
+            if not pdf_path or pdf_path.startswith("Error"):
+                return pdf_path or f"Failed to download PDF from Sci-Hub for: {identifier}"
 
             reader = PdfReader(pdf_path)
             text_parts = []

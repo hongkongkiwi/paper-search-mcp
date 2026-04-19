@@ -2,9 +2,26 @@
 import unittest
 import asyncio
 import os
+from unittest.mock import patch
 from paper_search_mcp import server
 
 class TestPaperSearchServer(unittest.TestCase):
+    def test_download_pubmed_returns_not_supported_message(self):
+        message = "PubMed does not provide direct PDF downloads."
+
+        with patch.object(server.pubmed_searcher, "download_pdf", side_effect=NotImplementedError(message)):
+            result = asyncio.run(server.download_pubmed("12345"))
+
+        self.assertEqual(result, message)
+
+    def test_download_crossref_returns_not_supported_message(self):
+        message = "CrossRef does not provide direct PDF downloads."
+
+        with patch.object(server.crossref_searcher, "download_pdf", side_effect=NotImplementedError(message)):
+            result = asyncio.run(server.download_crossref("10.1000/example"))
+
+        self.assertEqual(result, message)
+
     def test_search_arxiv(self):
         """Test the search_arxiv tool returns 10 results."""
         result = asyncio.run(server.search_arxiv("machine learning", max_results=10))
