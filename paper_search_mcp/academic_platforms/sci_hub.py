@@ -12,6 +12,8 @@ import requests
 from bs4 import BeautifulSoup
 from PyPDF2 import PdfReader
 
+from paper_search_mcp.http_status import is_pdf_response
+
 
 SCIHUB_MIRRORS = [
     "https://sci-hub.ru",
@@ -83,8 +85,8 @@ class SciHubFetcher:
             if response.status_code != 200:
                 return f"Error: Sci-Hub returned HTTP {response.status_code} when downloading PDF for: {identifier}"
 
-            content_type = response.headers.get('Content-Type', 'unknown')
-            if 'application/pdf' not in content_type:
+            if not is_pdf_response(response):
+                content_type = response.headers.get('Content-Type', 'unknown')
                 return f"Error: Sci-Hub returned non-PDF content (Content-Type: {content_type}) for: {identifier}"
 
             # Generate filename and save
@@ -114,9 +116,12 @@ class SciHubFetcher:
             response = self.session.get(search_url, verify=False, timeout=20)
 
             if response.status_code != 200:
-                self._failed_mirrors.add(base_url)
                 self._mirror_statuses[base_url] = response.status_code
-                logging.warning(f"Mirror {base_url} returned status {response.status_code}, marking as failed")
+                if response.status_code >= 500:
+                    self._failed_mirrors.add(base_url)
+                    logging.warning(f"Mirror {base_url} returned status {response.status_code}, marking as failed")
+                else:
+                    logging.warning(f"Mirror {base_url} returned status {response.status_code} for {identifier}, not blacklisting")
                 return None
 
             soup = BeautifulSoup(response.content, 'html.parser')
@@ -209,8 +214,12 @@ class SciHubFetcher:
         """
         try:
             pdf_path = self.download_pdf(identifier, save_path)
-            if not pdf_path or pdf_path.startswith("Error"):
+            if not pdf_path:
                 return pdf_path or f"Failed to download PDF from Sci-Hub for: {identifier}"
+            if pdf_path.startswith(("Error:", "Failed")):
+                return pdf_path
+            if not Path(pdf_path).is_file():
+                return f"Error: downloaded PDF path does not exist: {pdf_path}"
 
             reader = PdfReader(pdf_path)
             text_parts = []

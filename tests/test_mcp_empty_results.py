@@ -25,7 +25,7 @@ class TestMCPEmptyResults(unittest.TestCase):
 
         self.assertEqual(len(result), 1)
         self.assertEqual(result[0].type, "text")
-        self.assertEqual(result[0].text, "[]")
+        self.assertEqual(result[0].text, "No results found (zero matches).")
 
     def test_search_semantic_mcp_call_keeps_non_empty_results(self):
         paper = Paper(

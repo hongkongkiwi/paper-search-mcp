@@ -24,7 +24,7 @@ NETWORK_TESTS = {
     "tests/test_semantic.py::TestSemanticSearcher::test_download_pdf_functionality",
     "tests/test_semantic.py::TestSemanticSearcher::test_read_paper_functionality",
     "tests/test_semantic.py::TestSemanticSearcher::test_get_paper_details",
-    "tests/test_semantic.py::TestSemanticSearcher::test_search_with_fetch_details",
+    "tests/test_semantic.py::TestSemanticSearcher::test_search_returns_semantic_papers",
     "tests/test_semantic.py::TestSemanticSearcher::test_search_performance_comparison",
 }
 

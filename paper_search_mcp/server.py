@@ -34,7 +34,7 @@ class PaperSearchMCP(FastMCP):
         context = self.get_context()
         result = await self._tool_manager.call_tool(name, arguments, context=context)
         if isinstance(result, list) and not result:
-            return [types.TextContent(type="text", text="[]")]
+            return [types.TextContent(type="text", text="No results found (zero matches).")]
         return _convert_to_content(result)
 
 
@@ -70,9 +70,18 @@ def _apply_filename(result: str, filename: Optional[str]) -> str:
     """
     if not filename or not os.path.isfile(result):
         return result
-    if not filename.lower().endswith('.pdf'):
-        filename += '.pdf'
-    new_path = os.path.join(os.path.dirname(result), filename)
+
+    assert not os.path.isabs(filename), f"filename must not be absolute: {filename}"
+
+    basename = os.path.basename(filename.replace("\\", "/"))
+    assert basename, "filename must not be empty"
+
+    if not basename.lower().endswith('.pdf'):
+        basename += '.pdf'
+
+    new_path = os.path.join(os.path.dirname(result), basename)
+    assert not os.path.exists(new_path), f"filename already exists: {basename}"
+
     os.rename(result, new_path)
     return new_path
 
@@ -102,16 +111,18 @@ async def _resolve_save_path(save_path: str, ctx: Context = None) -> str:
     assert roots_result.roots, "Client advertised roots support but returned no roots"
 
     root_path = _file_uri_to_path(str(roots_result.roots[0].uri))
-    return os.path.normpath(os.path.join(root_path, save_path))
+    resolved_root_path = os.path.realpath(root_path)
+    resolved_save_path = os.path.realpath(os.path.join(resolved_root_path, save_path))
+    assert os.path.commonpath([resolved_root_path, resolved_save_path]) == resolved_root_path, (
+        f"save_path escapes client root: {save_path}"
+    )
+    return resolved_save_path
 
 
 # Synchronous helper to adapt synchronous searchers
 def sync_search(searcher, query: str, max_results: int, **kwargs) -> List[Dict]:
     """Synchronous search wrapper for searchers."""
-    if 'year' in kwargs:
-        papers = searcher.search(query, year=kwargs['year'], max_results=max_results)
-    else:
-        papers = searcher.search(query, max_results=max_results)
+    papers = searcher.search(query, max_results=max_results, **kwargs)
     return [paper.to_dict() for paper in papers]
 
 

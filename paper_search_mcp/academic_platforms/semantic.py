@@ -177,7 +177,7 @@ class SemanticSearcher(PaperSource):
                 api_key = self.get_api_key()
                 headers = {"x-api-key": api_key} if api_key else {}
                 url = f"{self.SEMANTIC_BASE_URL}/{path}"
-                response = self.session.get(url, params=params, headers=headers)
+                response = self.session.get(url, params=params, headers=headers, timeout=30)
                 
                 # 检查是否是429错误（限流）
                 if response.status_code == 429:

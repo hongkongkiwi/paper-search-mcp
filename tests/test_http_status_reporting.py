@@ -79,13 +79,13 @@ class TestHttpStatusReporting(unittest.TestCase):
         self.assertEqual(mock_get.call_count, server.biorxiv_searcher.max_retries)
         self.assertIn("remote service error (HTTP 502 Bad Gateway)", result[0]["error"])
 
-    def test_search_dblp_reports_non_200_no_content(self):
+    def test_search_dblp_returns_empty_list_for_204(self):
         response = status_response(204, "No Content")
 
         with patch.object(server.dblp_searcher.session, "get", return_value=response):
             result = asyncio.run(server.search_dblp("attention", max_results=1))
 
-        self.assertIn("HTTP 204 No Content", result[0]["error"])
+        self.assertEqual(result, [])
 
     def test_read_openalex_paper_returns_http_status_in_error(self):
         paper = Paper(

@@ -87,6 +87,9 @@ class DBLPSearcher:
                     search_params["yearMax"] = year.strip()
 
             response = self.session.get(self.SEARCH_URL, params=search_params, timeout=30)
+            if response.status_code == 204:
+                logger.info(f"No DBLP results for query: {query}")
+                return papers
             raise_for_status(response, "DBLP search failed")
 
             papers = self._parse_xml(response.content, query)

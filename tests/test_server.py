@@ -30,14 +30,14 @@ class TestPaperSearchServer(unittest.TestCase):
 
     def test_download_semantic_uses_client_root_for_relative_save_path(self):
         with tempfile.TemporaryDirectory() as workspace_dir:
-            expected_path = os.path.join(workspace_dir, "downloads")
+            expected_path = os.path.realpath(os.path.join(workspace_dir, "downloads"))
 
             class FakeSession:
                 def check_client_capability(self, capability):
                     return True
 
                 async def list_roots(self):
-                    root = SimpleNamespace(uri=Path(workspace_dir).as_uri())
+                    root = SimpleNamespace(uri=Path(workspace_dir).resolve().as_uri())
                     return SimpleNamespace(roots=[root])
 
             ctx = SimpleNamespace(session=FakeSession())

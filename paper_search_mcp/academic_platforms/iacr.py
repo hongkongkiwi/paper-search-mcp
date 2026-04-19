@@ -222,6 +222,7 @@ class IACRSearcher(PaperSource):
                 return f"Failed to download PDF: HTTP {response.status_code}"
             if not is_pdf_response(response):
                 return non_pdf_error(response)
+            os.makedirs(save_path, exist_ok=True)
             filename = f"{save_path}/iacr_{paper_id.replace('/', '_')}.pdf"
             with open(filename, "wb") as f:
                 f.write(response.content)
