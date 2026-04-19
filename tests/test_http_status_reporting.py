@@ -1,4 +1,6 @@
 import asyncio
+import os
+import tempfile
 import unittest
 from datetime import datetime
 from unittest.mock import Mock, patch
@@ -111,9 +113,15 @@ class TestHttpStatusReporting(unittest.TestCase):
     def test_download_semantic_reports_paper_not_found_for_missing_doi(self):
         response = status_response(404, "Not Found")
 
-        with patch.object(SemanticSearcher, "get_api_key", return_value=None):
-            with patch.object(server.semantic_searcher.session, "get", return_value=response):
-                result = asyncio.run(server.download_semantic("DOI:10.1039/b403378c"))
+        with tempfile.TemporaryDirectory() as save_path:
+            with patch.object(SemanticSearcher, "get_api_key", return_value=None):
+                with patch.object(server.semantic_searcher.session, "get", return_value=response):
+                    result = asyncio.run(
+                        server.download_semantic(
+                            "DOI:10.1039/b403378c",
+                            save_path=os.path.realpath(save_path),
+                        )
+                    )
 
         self.assertIn("Semantic Scholar paper lookup failed for DOI:10.1039/b403378c", result)
         self.assertIn("resource not found (HTTP 404 Not Found)", result)
@@ -180,9 +188,15 @@ class TestHttpStatusReporting(unittest.TestCase):
             status_response(503, "Service Unavailable"),
         ]
 
-        with patch("paper_search_mcp.server.scihub_fetcher", fetcher):
-            with patch.object(fetcher.session, "get", side_effect=responses):
-                result = asyncio.run(server.download_scihub("10.1000/test"))
+        with tempfile.TemporaryDirectory() as save_path:
+            with patch("paper_search_mcp.server.scihub_fetcher", fetcher):
+                with patch.object(fetcher.session, "get", side_effect=responses):
+                    result = asyncio.run(
+                        server.download_scihub(
+                            "10.1000/test",
+                            save_path=os.path.realpath(save_path),
+                        )
+                    )
 
         self.assertIn("'https://mirror-1': 403", result)
         self.assertIn("'https://mirror-2': 503", result)

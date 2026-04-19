@@ -56,6 +56,80 @@ class TestPaperSearchServer(unittest.TestCase):
 
         self.assertEqual(result, os.path.join(expected_path, "paper.pdf"))
 
+    def test_download_scihub_uses_client_root_for_relative_save_path(self):
+        with tempfile.TemporaryDirectory() as workspace_dir:
+            expected_path = os.path.realpath(os.path.join(workspace_dir, "downloads"))
+
+            class FakeSession:
+                def check_client_capability(self, capability):
+                    return True
+
+                async def list_roots(self):
+                    root = SimpleNamespace(uri=Path(workspace_dir).resolve().as_uri())
+                    return SimpleNamespace(roots=[root])
+
+            ctx = SimpleNamespace(session=FakeSession())
+
+            def fake_download_pdf(identifier, save_path):
+                self.assertEqual(save_path, expected_path)
+                return os.path.join(save_path, "paper.pdf")
+
+            with patch.object(server.scihub_fetcher, "download_pdf", side_effect=fake_download_pdf):
+                result = asyncio.run(
+                    server.download_scihub(
+                        "10.1021/acs.analchem.8b02271",
+                        ctx=ctx,
+                    )
+                )
+
+        self.assertEqual(result, os.path.join(expected_path, "paper.pdf"))
+
+    def test_download_scihub_rejects_relative_path_without_client_roots(self):
+        result = asyncio.run(server.download_scihub("10.1021/acs.analchem.8b02271"))
+        self.assertIn("relative save_path requires MCP client context", result)
+
+    def test_resolve_save_path_rejects_missing_client_context(self):
+        with self.assertRaisesRegex(ValueError, r"relative save_path requires MCP client context"):
+            asyncio.run(server._resolve_save_path("./downloads"))
+
+    def test_resolve_save_path_rejects_missing_client_roots_support(self):
+        class FakeSession:
+            def check_client_capability(self, capability):
+                return False
+
+        ctx = SimpleNamespace(session=FakeSession())
+
+        with self.assertRaisesRegex(ValueError, r"relative save_path requires MCP client roots support"):
+            asyncio.run(server._resolve_save_path("./downloads", ctx))
+
+    def test_resolve_save_path_rejects_empty_roots_list(self):
+        class FakeSession:
+            def check_client_capability(self, capability):
+                return True
+
+            async def list_roots(self):
+                return SimpleNamespace(roots=[])
+
+        ctx = SimpleNamespace(session=FakeSession())
+
+        with self.assertRaisesRegex(ValueError, r"Client advertised roots support but returned no roots"):
+            asyncio.run(server._resolve_save_path("./downloads", ctx))
+
+    def test_resolve_save_path_rejects_escape_outside_client_root(self):
+        with tempfile.TemporaryDirectory() as workspace_dir:
+            class FakeSession:
+                def check_client_capability(self, capability):
+                    return True
+
+                async def list_roots(self):
+                    root = SimpleNamespace(uri=Path(workspace_dir).resolve().as_uri())
+                    return SimpleNamespace(roots=[root])
+
+            ctx = SimpleNamespace(session=FakeSession())
+
+            with self.assertRaisesRegex(ValueError, r"save_path escapes client root"):
+                asyncio.run(server._resolve_save_path("../outside", ctx))
+
     def test_search_semantic_returns_rate_limit_error(self):
         message = (
             "Semantic Scholar API rate limited the request (HTTP 429) after 3 "

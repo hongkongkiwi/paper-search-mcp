@@ -98,24 +98,27 @@ def _file_uri_to_path(uri: str) -> str:
 
 
 async def _resolve_save_path(save_path: str, ctx: Context = None) -> str:
-    if os.path.isabs(save_path) or ctx is None:
+    if os.path.isabs(save_path):
         return save_path
+
+    if ctx is None:
+        raise ValueError(f"relative save_path requires MCP client context: {save_path}")
 
     supports_roots = ctx.session.check_client_capability(
         types.ClientCapabilities(roots=types.RootsCapability())
     )
     if not supports_roots:
-        return save_path
+        raise ValueError(f"relative save_path requires MCP client roots support: {save_path}")
 
     roots_result = await ctx.session.list_roots()
-    assert roots_result.roots, "Client advertised roots support but returned no roots"
+    if not roots_result.roots:
+        raise ValueError("Client advertised roots support but returned no roots")
 
     root_path = _file_uri_to_path(str(roots_result.roots[0].uri))
     resolved_root_path = os.path.realpath(root_path)
     resolved_save_path = os.path.realpath(os.path.join(resolved_root_path, save_path))
-    assert os.path.commonpath([resolved_root_path, resolved_save_path]) == resolved_root_path, (
-        f"save_path escapes client root: {save_path}"
-    )
+    if os.path.commonpath([resolved_root_path, resolved_save_path]) != resolved_root_path:
+        raise ValueError(f"save_path escapes client root: {save_path}")
     return resolved_save_path
 
 

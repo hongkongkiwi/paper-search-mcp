@@ -65,6 +65,14 @@ class TestSciHubFetcher(unittest.TestCase):
             self.assertTrue(os.path.exists(result))
             self.assertTrue(result.endswith(".pdf"))
 
+    def test_read_paper_preserves_failed_download_errors(self):
+        message = "Failed to download PDF from Sci-Hub for: 10.1234/test"
+
+        with patch.object(self.fetcher, "download_pdf", return_value=message):
+            result = self.fetcher.read_paper("10.1234/test")
+
+        self.assertEqual(result, message)
+
 
 if __name__ == "__main__":
     unittest.main()
