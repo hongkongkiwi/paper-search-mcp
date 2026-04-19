@@ -5,6 +5,7 @@ from bs4 import BeautifulSoup
 import time
 import random
 from ..paper import Paper
+from ..http_status import raise_for_status, raise_if_http_error
 import logging
 
 logger = logging.getLogger(__name__)
@@ -112,10 +113,7 @@ class GoogleScholarSearcher(PaperSource):
                 # Make request with random delay
                 time.sleep(random.uniform(1.0, 3.0))
                 response = self.session.get(self.SCHOLAR_URL, params=params)
-                
-                if response.status_code != 200:
-                    logger.error(f"Search failed with status {response.status_code}")
-                    break
+                raise_for_status(response, "Google Scholar search failed")
 
                 # Parse results
                 soup = BeautifulSoup(response.text, 'html.parser')
@@ -136,6 +134,7 @@ class GoogleScholarSearcher(PaperSource):
                 start += results_per_page
 
             except Exception as e:
+                raise_if_http_error(e, "Google Scholar search failed")
                 logger.error(f"Search error: {e}")
                 break
 

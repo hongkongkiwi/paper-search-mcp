@@ -9,6 +9,7 @@ from datetime import datetime
 import time
 import requests
 from ..paper import Paper
+from ..http_status import raise_for_status, raise_if_http_error
 from PyPDF2 import PdfReader
 import os
 
@@ -97,7 +98,7 @@ class OpenAlexSearcher:
 
         try:
             response = self.session.get(url, params=params, timeout=30)
-            response.raise_for_status()
+            raise_for_status(response, "OpenAlex search failed")
             data = response.json()
 
             if "results" not in data:
@@ -113,6 +114,7 @@ class OpenAlexSearcher:
                     continue
 
         except Exception as e:
+            raise_if_http_error(e, "OpenAlex search failed")
             print(f"Error searching OpenAlex: {e}")
 
         return papers
@@ -135,10 +137,11 @@ class OpenAlexSearcher:
 
         try:
             response = self.session.get(url, params=params, timeout=30)
-            response.raise_for_status()
+            raise_for_status(response, f"OpenAlex paper lookup failed for {openalex_id}")
             data = response.json()
             return self._parse_work(data)
         except Exception as e:
+            raise_if_http_error(e, f"OpenAlex paper lookup failed for {openalex_id}")
             print(f"Error fetching paper {openalex_id}: {e}")
             return None
 
@@ -160,10 +163,11 @@ class OpenAlexSearcher:
 
         try:
             response = self.session.get(url, params=params, timeout=30)
-            response.raise_for_status()
+            raise_for_status(response, f"OpenAlex DOI lookup failed for {doi}")
             data = response.json()
             return self._parse_work(data)
         except Exception as e:
+            raise_if_http_error(e, f"OpenAlex DOI lookup failed for {doi}")
             print(f"Error fetching paper with DOI {doi}: {e}")
             return None
 
@@ -190,7 +194,7 @@ class OpenAlexSearcher:
 
         try:
             response = self.session.get(url, params=params, timeout=30)
-            response.raise_for_status()
+            raise_for_status(response, f"OpenAlex citations lookup failed for {openalex_id}")
             data = response.json()
 
             papers = []
@@ -200,6 +204,7 @@ class OpenAlexSearcher:
                     papers.append(paper)
             return papers
         except Exception as e:
+            raise_if_http_error(e, f"OpenAlex citations lookup failed for {openalex_id}")
             print(f"Error fetching citations: {e}")
             return []
 
@@ -225,7 +230,7 @@ class OpenAlexSearcher:
 
         try:
             response = self.session.get(url, params=params, timeout=30)
-            response.raise_for_status()
+            raise_for_status(response, f"OpenAlex references lookup failed for {openalex_id}")
             data = response.json()
 
             papers = []
@@ -235,6 +240,7 @@ class OpenAlexSearcher:
                     papers.append(paper)
             return papers
         except Exception as e:
+            raise_if_http_error(e, f"OpenAlex references lookup failed for {openalex_id}")
             print(f"Error fetching references: {e}")
             return []
 
@@ -264,7 +270,7 @@ class OpenAlexSearcher:
 
         try:
             response = self.session.get(author_url, params=author_params, timeout=30)
-            response.raise_for_status()
+            raise_for_status(response, f"OpenAlex author search failed for '{author_name}'")
             author_data = response.json()
 
             if not author_data.get("results"):
@@ -292,7 +298,7 @@ class OpenAlexSearcher:
                 params["sort"] = kwargs["sort"]
 
             response = self.session.get(url, params=params, timeout=30)
-            response.raise_for_status()
+            raise_for_status(response, f"OpenAlex author search failed for '{author_name}'")
             data = response.json()
 
             papers = []
@@ -303,6 +309,7 @@ class OpenAlexSearcher:
             return papers
 
         except Exception as e:
+            raise_if_http_error(e, f"OpenAlex author search failed for '{author_name}'")
             print(f"Error searching by author: {e}")
             return []
 
@@ -329,7 +336,7 @@ class OpenAlexSearcher:
 
         try:
             response = self.session.get(url, params=params, timeout=30)
-            response.raise_for_status()
+            raise_for_status(response, f"OpenAlex related papers lookup failed for {openalex_id}")
             data = response.json()
 
             papers = []
@@ -339,6 +346,7 @@ class OpenAlexSearcher:
                     papers.append(paper)
             return papers
         except Exception as e:
+            raise_if_http_error(e, f"OpenAlex related papers lookup failed for {openalex_id}")
             print(f"Error fetching related papers: {e}")
             return []
 
@@ -493,7 +501,7 @@ class OpenAlexSearcher:
         try:
             os.makedirs(save_path, exist_ok=True)
             response = self.session.get(pdf_url, timeout=30)
-            response.raise_for_status()
+            raise_for_status(response, f"OpenAlex PDF download failed for {paper_id}")
 
             filename = f"{paper_id.replace('/', '_')}.pdf"
             file_path = os.path.join(save_path, filename)
@@ -518,7 +526,7 @@ class OpenAlexSearcher:
         pdf_path = self.download_pdf(paper_id, save_path)
 
         if pdf_path.startswith("Failed") or pdf_path.startswith("No PDF"):
-            return ""
+            return pdf_path
 
         try:
             reader = PdfReader(pdf_path)

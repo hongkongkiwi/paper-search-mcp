@@ -5,6 +5,7 @@ import requests
 import time
 import random
 from ..paper import Paper
+from ..http_status import raise_for_status, raise_if_http_error
 import logging
 
 logger = logging.getLogger(__name__)
@@ -75,7 +76,7 @@ class CrossRefSearcher(PaperSource):
                 time.sleep(2)
                 response = self.session.get(url, params=params, timeout=30)
             
-            response.raise_for_status()
+            raise_for_status(response, "CrossRef search failed")
             data = response.json()
             
             papers = []
@@ -93,9 +94,11 @@ class CrossRefSearcher(PaperSource):
             return papers
             
         except requests.RequestException as e:
+            raise_if_http_error(e, "CrossRef search failed")
             logger.error(f"Error searching CrossRef: {e}")
             return []
         except Exception as e:
+            raise_if_http_error(e, "CrossRef search failed")
             logger.error(f"Unexpected error in CrossRef search: {e}")
             return []
     
@@ -284,21 +287,18 @@ class CrossRefSearcher(PaperSource):
             params = {'mailto': 'paper-search@example.org'}
             
             response = self.session.get(url, params=params, timeout=30)
-            
-            if response.status_code == 404:
-                logger.warning(f"DOI not found in CrossRef: {doi}")
-                return None
-                
-            response.raise_for_status()
+            raise_for_status(response, f"CrossRef DOI lookup failed for {doi}")
             data = response.json()
             
             item = data.get('message', {})
             return self._parse_crossref_item(item)
             
         except requests.RequestException as e:
+            raise_if_http_error(e, f"CrossRef DOI lookup failed for {doi}")
             logger.error(f"Error fetching DOI {doi} from CrossRef: {e}")
             return None
         except Exception as e:
+            raise_if_http_error(e, f"CrossRef DOI lookup failed for {doi}")
             logger.error(f"Unexpected error fetching DOI {doi}: {e}")
             return None
 

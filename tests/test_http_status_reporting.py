@@ -1,0 +1,121 @@
+import asyncio
+import unittest
+from datetime import datetime
+from unittest.mock import Mock, patch
+
+import requests
+
+from paper_search_mcp import server
+from paper_search_mcp.academic_platforms.sci_hub import SciHubFetcher
+from paper_search_mcp.academic_platforms.semantic import SemanticSearcher
+from paper_search_mcp.paper import Paper
+
+
+def status_response(status_code: int, reason: str) -> Mock:
+    response = Mock()
+    response.status_code = status_code
+    response.reason = reason
+    response.headers = {}
+    response.content = b""
+    response.text = ""
+    return response
+
+
+def http_error_response(status_code: int, reason: str) -> Mock:
+    response = status_response(status_code, reason)
+    response.raise_for_status.side_effect = requests.HTTPError(response=response)
+    return response
+
+
+class TestHttpStatusReporting(unittest.TestCase):
+    def test_search_crossref_reports_http_status(self):
+        response = status_response(503, "Service Unavailable")
+
+        with patch.object(server.crossref_searcher.session, "get", return_value=response):
+            result = asyncio.run(server.search_crossref("transformers"))
+
+        self.assertIn("HTTP 503 Service Unavailable", result[0]["error"])
+
+    def test_get_crossref_paper_by_doi_reports_http_status(self):
+        response = status_response(404, "Not Found")
+
+        with patch.object(server.crossref_searcher.session, "get", return_value=response):
+            result = asyncio.run(server.get_crossref_paper_by_doi("10.9999/missing"))
+
+        self.assertIn("HTTP 404 Not Found", result["error"])
+
+    def test_search_openalex_reports_http_status(self):
+        response = status_response(500, "Internal Server Error")
+
+        with patch.object(server.openalex_searcher.session, "get", return_value=response):
+            result = asyncio.run(server.search_openalex("graph neural networks"))
+
+        self.assertIn("HTTP 500 Internal Server Error", result[0]["error"])
+
+    def test_get_openalex_paper_reports_http_status(self):
+        response = status_response(404, "Not Found")
+
+        with patch.object(server.openalex_searcher.session, "get", return_value=response):
+            result = asyncio.run(server.get_openalex_paper("W404"))
+
+        self.assertIn("HTTP 404 Not Found", result["error"])
+
+    def test_search_semantic_reports_http_status(self):
+        response = status_response(503, "Service Unavailable")
+
+        with patch.object(SemanticSearcher, "get_api_key", return_value=None):
+            with patch.object(server.semantic_searcher.session, "get", return_value=response):
+                result = asyncio.run(server.search_semantic("secret sharing", max_results=1))
+
+        self.assertIn("HTTP 503 Service Unavailable", result[0]["error"])
+
+    def test_search_biorxiv_reports_final_http_status_after_retries(self):
+        response = http_error_response(502, "Bad Gateway")
+
+        with patch.object(server.biorxiv_searcher.session, "get", return_value=response) as mock_get:
+            result = asyncio.run(server.search_biorxiv("cell biology", max_results=1))
+
+        self.assertEqual(mock_get.call_count, server.biorxiv_searcher.max_retries)
+        self.assertIn("HTTP 502 Bad Gateway", result[0]["error"])
+
+    def test_search_dblp_reports_non_200_no_content(self):
+        response = status_response(204, "No Content")
+
+        with patch.object(server.dblp_searcher.session, "get", return_value=response):
+            result = asyncio.run(server.search_dblp("attention", max_results=1))
+
+        self.assertIn("HTTP 204 No Content", result[0]["error"])
+
+    def test_read_openalex_paper_returns_http_status_in_error(self):
+        paper = Paper(
+            paper_id="W123",
+            title="Test",
+            authors=["Ada"],
+            abstract="",
+            doi="",
+            published_date=datetime(2024, 1, 1),
+            pdf_url="https://example.com/paper.pdf",
+            url="https://example.com/paper",
+            source="openalex",
+        )
+        response = status_response(403, "Forbidden")
+
+        with patch.object(server.openalex_searcher, "get_paper_by_id", return_value=paper):
+            with patch.object(server.openalex_searcher.session, "get", return_value=response):
+                result = asyncio.run(server.read_openalex_paper("W123"))
+
+        self.assertIn("HTTP 403 Forbidden", result)
+
+    def test_download_scihub_reports_mirror_statuses(self):
+        fetcher = SciHubFetcher(mirrors=["https://mirror-1", "https://mirror-2"])
+        responses = [
+            status_response(403, "Forbidden"),
+            status_response(503, "Service Unavailable"),
+        ]
+
+        with patch("paper_search_mcp.server.scihub_fetcher", fetcher):
+            with patch.object(fetcher.session, "get", side_effect=responses):
+                result = asyncio.run(server.download_scihub("10.1000/test"))
+
+        self.assertIn("'https://mirror-1': 403", result)
+        self.assertIn("'https://mirror-2': 503", result)

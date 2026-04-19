@@ -1444,12 +1444,16 @@ async def search_ssrn(
         # Search with year filter
         await search_ssrn("climate finance", 10, year="2020-2023")
     """
-    search_kwargs = {"year": year} if year else {}
-    if topic:
-        search_kwargs["topic"] = topic
+    try:
+        search_kwargs = {"year": year} if year else {}
+        if topic:
+            search_kwargs["topic"] = topic
 
-    papers = ssrn_searcher.search(query, max_results, **search_kwargs)
-    return [paper.to_dict() for paper in papers] if papers else []
+        papers = ssrn_searcher.search(query, max_results, **search_kwargs)
+        return [paper.to_dict() for paper in papers] if papers else []
+    except Exception as e:
+        logger.error(f"search_ssrn failed: {e}")
+        return [{"error": f"SSRN search failed: {type(e).__name__}: {e}"}]
 
 
 @mcp.tool()
@@ -1471,8 +1475,12 @@ async def search_ssrn_by_author(
     Example:
         await search_ssrn_by_author("Andrei Shleifer", 15)
     """
-    papers = ssrn_searcher.search_by_author(author_name, max_results, year)
-    return [paper.to_dict() for paper in papers] if papers else []
+    try:
+        papers = ssrn_searcher.search_by_author(author_name, max_results, year)
+        return [paper.to_dict() for paper in papers] if papers else []
+    except Exception as e:
+        logger.error(f"search_ssrn_by_author failed: {e}")
+        return [{"error": f"SSRN author search failed for '{author_name}': {type(e).__name__}: {e}"}]
 
 
 @mcp.tool()
@@ -1488,8 +1496,12 @@ async def get_ssrn_paper(paper_id: str) -> Dict:
     Example:
         await get_ssrn_paper("1234567")
     """
-    paper = ssrn_searcher.get_paper_by_id(paper_id)
-    return paper.to_dict() if paper else {}
+    try:
+        paper = ssrn_searcher.get_paper_by_id(paper_id)
+        return paper.to_dict() if paper else {}
+    except Exception as e:
+        logger.error(f"get_ssrn_paper failed: {e}")
+        return {"error": f"SSRN paper lookup failed for {paper_id}: {type(e).__name__}: {e}"}
 
 
 @mcp.tool()
@@ -1516,9 +1528,13 @@ async def download_ssrn(
     Example:
         await download_ssrn("1234567")
     """
-    save_path = await _resolve_save_path(save_path, ctx)
-    result = ssrn_searcher.download_pdf(paper_id, save_path)
-    return _apply_filename(result, filename)
+    try:
+        save_path = await _resolve_save_path(save_path, ctx)
+        result = ssrn_searcher.download_pdf(paper_id, save_path)
+        return _apply_filename(result, filename)
+    except Exception as e:
+        logger.error(f"download_ssrn failed: {e}")
+        return f"Download failed for SSRN paper {paper_id}: {type(e).__name__}: {e}"
 
 
 @mcp.tool()
@@ -1535,7 +1551,11 @@ async def read_ssrn_paper(paper_id: str, save_path: str = "./downloads") -> str:
     Example:
         content = await read_ssrn_paper("1234567")
     """
-    return ssrn_searcher.read_paper(paper_id, save_path)
+    try:
+        return ssrn_searcher.read_paper(paper_id, save_path)
+    except Exception as e:
+        logger.error(f"read_ssrn_paper failed: {e}")
+        return f"Failed to read SSRN paper {paper_id}: {type(e).__name__}: {e}"
 
 
 # ============================================================================
@@ -1575,14 +1595,18 @@ async def search_dblp(
         # Search specific venue
         await search_dblp("attention", 10, venue="NeurIPS")
     """
-    search_kwargs = {"year": year} if year else {}
-    if venue_type:
-        search_kwargs["venue_type"] = venue_type
-    if venue:
-        search_kwargs["venue"] = venue
+    try:
+        search_kwargs = {"year": year} if year else {}
+        if venue_type:
+            search_kwargs["venue_type"] = venue_type
+        if venue:
+            search_kwargs["venue"] = venue
 
-    papers = dblp_searcher.search(query, max_results, **search_kwargs)
-    return [paper.to_dict() for paper in papers] if papers else []
+        papers = dblp_searcher.search(query, max_results, **search_kwargs)
+        return [paper.to_dict() for paper in papers] if papers else []
+    except Exception as e:
+        logger.error(f"search_dblp failed: {e}")
+        return [{"error": f"DBLP search failed: {type(e).__name__}: {e}"}]
 
 
 @mcp.tool()
@@ -1604,8 +1628,12 @@ async def search_dblp_by_author(
     Example:
         await search_dblp_by_author("Yann LeCun", 15)
     """
-    papers = dblp_searcher.search_by_author(author_name, max_results, year)
-    return [paper.to_dict() for paper in papers] if papers else []
+    try:
+        papers = dblp_searcher.search_by_author(author_name, max_results, year)
+        return [paper.to_dict() for paper in papers] if papers else []
+    except Exception as e:
+        logger.error(f"search_dblp_by_author failed: {e}")
+        return [{"error": f"DBLP author search failed for '{author_name}': {type(e).__name__}: {e}"}]
 
 
 @mcp.tool()
@@ -1622,8 +1650,12 @@ async def search_dblp_venue(venue_name: str, max_results: int = 50) -> List[Dict
     Example:
         await search_dblp_venue("NeurIPS", 100)
     """
-    papers = dblp_searcher.search_venue(venue_name, max_results)
-    return [paper.to_dict() for paper in papers] if papers else []
+    try:
+        papers = dblp_searcher.search_venue(venue_name, max_results)
+        return [paper.to_dict() for paper in papers] if papers else []
+    except Exception as e:
+        logger.error(f"search_dblp_venue failed: {e}")
+        return [{"error": f"DBLP venue search failed for '{venue_name}': {type(e).__name__}: {e}"}]
 
 
 @mcp.tool()
@@ -1639,8 +1671,12 @@ async def get_dblp_paper(key: str) -> Dict:
     Example:
         await get_dblp_paper("conf/nips/VaswaniSPU17")
     """
-    paper = dblp_searcher.get_paper_by_key(key)
-    return paper.to_dict() if paper else {}
+    try:
+        paper = dblp_searcher.get_paper_by_key(key)
+        return paper.to_dict() if paper else {}
+    except Exception as e:
+        logger.error(f"get_dblp_paper failed: {e}")
+        return {"error": f"DBLP paper lookup failed for {key}: {type(e).__name__}: {e}"}
 
 
 @mcp.tool()

@@ -12,6 +12,7 @@ import logging
 import urllib.parse
 
 from ..paper import Paper
+from ..http_status import raise_for_status, raise_if_http_error
 
 logger = logging.getLogger(__name__)
 
@@ -86,12 +87,7 @@ class DBLPSearcher:
                     search_params["yearMax"] = year.strip()
 
             response = self.session.get(self.SEARCH_URL, params=search_params, timeout=30)
-
-            if response.status_code == 204:
-                logger.info(f"No DBLP results for query: {query}")
-                return papers
-
-            response.raise_for_status()
+            raise_for_status(response, "DBLP search failed")
 
             papers = self._parse_xml(response.content, query)
 
@@ -120,6 +116,7 @@ class DBLPSearcher:
             logger.info(f"DBLP search: found {len(papers)} papers for '{query}'")
 
         except Exception as e:
+            raise_if_http_error(e, "DBLP search failed")
             logger.error(f"DBLP search error: {e}")
 
         return papers[:max_results]
@@ -167,15 +164,13 @@ class DBLPSearcher:
         try:
             url = f"{self.BASE_URL}/rec/papers/{key}.xml"
             response = self.session.get(url, timeout=30)
-
-            if response.status_code == 404:
-                return None
-            response.raise_for_status()
+            raise_for_status(response, f"DBLP paper lookup failed for {key}")
 
             papers = self._parse_xml(response.content, key)
             return papers[0] if papers else None
 
         except Exception as e:
+            raise_if_http_error(e, f"DBLP paper lookup failed for {key}")
             logger.error(f"Error fetching DBLP paper {key}: {e}")
             return None
 
@@ -211,14 +206,12 @@ class DBLPSearcher:
         try:
             url = f"{self.BASE_URL}/pers/{author_id}.xml"
             response = self.session.get(url, timeout=30)
-
-            if response.status_code == 404:
-                return papers
-            response.raise_for_status()
+            raise_for_status(response, f"DBLP author publications lookup failed for {author_id}")
 
             papers = self._parse_xml(response.content, author_id)
 
         except Exception as e:
+            raise_if_http_error(e, f"DBLP author publications lookup failed for {author_id}")
             logger.error(f"Error fetching author publications for {author_id}: {e}")
 
         return papers
@@ -247,10 +240,7 @@ class DBLPSearcher:
         try:
             url = f"{self.BASE_URL}/{venue_key}.xml"
             response = self.session.get(url, timeout=30)
-
-            if response.status_code == 404:
-                return None
-            response.raise_for_status()
+            raise_for_status(response, f"DBLP venue lookup failed for {venue_key}")
 
             root = ET.fromstring(response.content)
 
@@ -271,6 +261,7 @@ class DBLPSearcher:
             return info
 
         except Exception as e:
+            raise_if_http_error(e, f"DBLP venue lookup failed for {venue_key}")
             logger.error(f"Error fetching venue info for {venue_key}: {e}")
             return None
 
@@ -358,14 +349,12 @@ class DBLPSearcher:
         try:
             url = f"{self.BASE_URL}/rec/papers/{key}.bib"
             response = self.session.get(url, timeout=30)
-
-            if response.status_code == 404:
-                return None
-            response.raise_for_status()
+            raise_for_status(response, f"DBLP BibTeX lookup failed for {key}")
 
             return response.text
 
         except Exception as e:
+            raise_if_http_error(e, f"DBLP BibTeX lookup failed for {key}")
             logger.error(f"Error fetching BibTeX for {key}: {e}")
             return None
 

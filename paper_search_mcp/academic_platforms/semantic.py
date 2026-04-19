@@ -10,6 +10,8 @@ from PyPDF2 import PdfReader
 import os
 import re
 
+from ..http_status import raise_for_status, raise_if_http_error
+
 logger = logging.getLogger(__name__)
 
 
@@ -160,7 +162,7 @@ class SemanticSearcher(PaperSource):
             return None
         return api_key.strip()
     
-    def request_api(self, path: str, params: dict) -> dict:
+    def request_api(self, path: str, params: dict) -> requests.Response:
         """
         Make a request to the Semantic Scholar API with optional API key.
         """
@@ -189,28 +191,16 @@ class SemanticSearcher(PaperSource):
                     logger.error(rate_limit_message)
                     raise SemanticRateLimitError(rate_limit_message)
                 
-                response.raise_for_status()
+                raise_for_status(response, f"Semantic Scholar API request failed for {path}")
                 return response
-                
-            except requests.exceptions.HTTPError as e:
-                if e.response.status_code == 429:
-                    if attempt < max_retries - 1:
-                        wait_time = retry_delay * (2 ** attempt)
-                        logger.warning(f"Rate limited (429). Waiting {wait_time} seconds before retry {attempt + 1}/{max_retries}")
-                        time.sleep(wait_time)
-                        continue
-                    logger.error(rate_limit_message)
-                    raise SemanticRateLimitError(rate_limit_message)
-                else:
-                    logger.error(f"HTTP Error requesting API: {e}")
-                    return {"error": "http_error", "status_code": e.response.status_code, "message": str(e)}
             except SemanticRateLimitError:
                 raise
             except Exception as e:
+                raise_if_http_error(e, f"Semantic Scholar API request failed for {path}")
                 logger.error(f"Error requesting API: {e}")
-                return {"error": "general_error", "message": str(e)}
-        
-        return {"error": "max_retries_exceeded", "message": "Maximum retry attempts exceeded"}
+                raise
+
+        raise RuntimeError("Maximum retry attempts exceeded")
 
     def search(self, query: str, year: Optional[str] = None, max_results: int = 10) -> List[Paper]:
         """
@@ -242,22 +232,6 @@ class SemanticSearcher(PaperSource):
                 params["year"] = year
             # Make request
             response = self.request_api("paper/search", params)
-            
-            # Check for errors
-            if isinstance(response, dict) and "error" in response:
-                error_msg = response.get("message", "Unknown error")
-                if response.get("error") == "rate_limited":
-                    logger.error(f"Rate limited by Semantic Scholar API: {error_msg}")
-                else:
-                    logger.error(f"Semantic Scholar API error: {error_msg}")
-                return papers
-            
-            # Check response status code
-            if not hasattr(response, 'status_code') or response.status_code != 200:
-                status_code = getattr(response, 'status_code', 'unknown')
-                logger.error(f"Semantic Scholar search failed with status {status_code}")
-                return papers
-                
             data = response.json()
             results = data['data']
 
@@ -278,6 +252,7 @@ class SemanticSearcher(PaperSource):
         except SemanticRateLimitError:
             raise
         except Exception as e:
+            raise_if_http_error(e, "Semantic Scholar search failed")
             logger.error(f"Semantic Scholar search error: {e}")
 
         return papers[:max_results]
@@ -424,22 +399,6 @@ class SemanticSearcher(PaperSource):
             }
             
             response = self.request_api(f"paper/{paper_id}", params)
-            
-            # Check for errors
-            if isinstance(response, dict) and "error" in response:
-                error_msg = response.get("message", "Unknown error")
-                if response.get("error") == "rate_limited":
-                    logger.error(f"Rate limited by Semantic Scholar API: {error_msg}")
-                else:
-                    logger.error(f"Semantic Scholar API error: {error_msg}")
-                return None
-            
-            # Check response status code
-            if not hasattr(response, 'status_code') or response.status_code != 200:
-                status_code = getattr(response, 'status_code', 'unknown')
-                logger.error(f"Semantic Scholar paper details fetch failed with status {status_code}")
-                return None
-                
             results = response.json()
             paper = self._parse_paper(results)
             if paper:
@@ -447,6 +406,7 @@ class SemanticSearcher(PaperSource):
             else:
                 return None
         except Exception as e:
+            raise_if_http_error(e, f"Semantic Scholar paper details lookup failed for {paper_id}")
             logger.error(f"Error fetching paper details for {paper_id}: {e}")
             return None
 
@@ -472,13 +432,6 @@ class SemanticSearcher(PaperSource):
 
             response = self.request_api(f"paper/{paper_id}/citations", params)
 
-            if isinstance(response, dict) and "error" in response:
-                logger.error(f"Error fetching citations: {response.get('message', 'Unknown error')}")
-                return papers
-
-            if not hasattr(response, 'status_code') or response.status_code != 200:
-                return papers
-
             data = response.json()
             results = data.get('data', [])
 
@@ -491,6 +444,7 @@ class SemanticSearcher(PaperSource):
                         papers.append(paper)
 
         except Exception as e:
+            raise_if_http_error(e, f"Semantic Scholar citations lookup failed for {paper_id}")
             logger.error(f"Error fetching citations for {paper_id}: {e}")
 
         return papers
@@ -517,13 +471,6 @@ class SemanticSearcher(PaperSource):
 
             response = self.request_api(f"paper/{paper_id}/references", params)
 
-            if isinstance(response, dict) and "error" in response:
-                logger.error(f"Error fetching references: {response.get('message', 'Unknown error')}")
-                return papers
-
-            if not hasattr(response, 'status_code') or response.status_code != 200:
-                return papers
-
             data = response.json()
             results = data.get('data', [])
 
@@ -536,6 +483,7 @@ class SemanticSearcher(PaperSource):
                         papers.append(paper)
 
         except Exception as e:
+            raise_if_http_error(e, f"Semantic Scholar references lookup failed for {paper_id}")
             logger.error(f"Error fetching references for {paper_id}: {e}")
 
         return papers
@@ -562,13 +510,6 @@ class SemanticSearcher(PaperSource):
 
             response = self.request_api(f"paper/{paper_id}/related", params)
 
-            if isinstance(response, dict) and "error" in response:
-                logger.error(f"Error fetching related papers: {response.get('message', 'Unknown error')}")
-                return papers
-
-            if not hasattr(response, 'status_code') or response.status_code != 200:
-                return papers
-
             data = response.json()
             results = data.get('data', [])
 
@@ -581,6 +522,7 @@ class SemanticSearcher(PaperSource):
                         papers.append(paper)
 
         except Exception as e:
+            raise_if_http_error(e, f"Semantic Scholar related papers lookup failed for {paper_id}")
             logger.error(f"Error fetching related papers for {paper_id}: {e}")
 
         return papers
@@ -608,13 +550,6 @@ class SemanticSearcher(PaperSource):
 
             response = self.request_api("author/search", params)
 
-            if isinstance(response, dict) and "error" in response:
-                logger.error(f"Error searching for author: {response.get('message', 'Unknown error')}")
-                return papers
-
-            if not hasattr(response, 'status_code') or response.status_code != 200:
-                return papers
-
             data = response.json()
             results = data.get('data', [])
 
@@ -637,13 +572,6 @@ class SemanticSearcher(PaperSource):
 
             response = self.request_api(f"author/{author_id}/papers", params)
 
-            if isinstance(response, dict) and "error" in response:
-                logger.error(f"Error fetching author papers: {response.get('message', 'Unknown error')}")
-                return papers
-
-            if not hasattr(response, 'status_code') or response.status_code != 200:
-                return papers
-
             data = response.json()
             results = data.get('data', [])
 
@@ -653,6 +581,7 @@ class SemanticSearcher(PaperSource):
                     papers.append(paper)
 
         except Exception as e:
+            raise_if_http_error(e, f"Semantic Scholar author search failed for '{author_name}'")
             logger.error(f"Error searching by author '{author_name}': {e}")
 
         return papers

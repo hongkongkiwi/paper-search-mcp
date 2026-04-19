@@ -29,6 +29,7 @@ class SciHubFetcher:
         """Initialize with list of Sci-Hub mirror URLs."""
         self.mirrors = [m.rstrip("/") for m in (mirrors or SCIHUB_MIRRORS)]
         self._failed_mirrors: set = set()
+        self._mirror_statuses: dict[str, int] = {}
         self.session = requests.Session()
         self.session.headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
@@ -54,6 +55,7 @@ class SciHubFetcher:
             return "Error: empty identifier provided to Sci-Hub downloader"
 
         try:
+            self._mirror_statuses = {}
             # Try each mirror in order, skipping known failed ones
             pdf_url = None
             for mirror in self.mirrors:
@@ -65,9 +67,14 @@ class SciHubFetcher:
             if not pdf_url:
                 tried = [m for m in self.mirrors if m not in self._failed_mirrors]
                 failed = list(self._failed_mirrors)
+                statuses = {
+                    mirror: status
+                    for mirror, status in self._mirror_statuses.items()
+                }
                 return (
                     f"Error: could not find PDF URL on any Sci-Hub mirror for: {identifier}. "
-                    f"Tried mirrors: {tried}. Previously failed mirrors: {failed}"
+                    f"Tried mirrors: {tried}. Previously failed mirrors: {failed}. "
+                    f"HTTP statuses: {statuses}"
                 )
 
             # Download the PDF
@@ -108,6 +115,7 @@ class SciHubFetcher:
 
             if response.status_code != 200:
                 self._failed_mirrors.add(base_url)
+                self._mirror_statuses[base_url] = response.status_code
                 logging.warning(f"Mirror {base_url} returned status {response.status_code}, marking as failed")
                 return None
 

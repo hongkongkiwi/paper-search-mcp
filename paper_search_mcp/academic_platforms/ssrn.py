@@ -13,6 +13,7 @@ import logging
 import time
 
 from ..paper import Paper
+from ..http_status import raise_for_status, raise_if_http_error
 
 logger = logging.getLogger(__name__)
 
@@ -86,10 +87,7 @@ class SSRNSearcher:
                 params["authorId"] = author_id
 
             response = self.session.get(f"{self.ABSTRACT_URL}/search.cfm", params=params, timeout=30)
-
-            if response.status_code != 200:
-                logger.error(f"SSRN search failed with status {response.status_code}")
-                return papers
+            raise_for_status(response, "SSRN search failed")
 
             soup = BeautifulSoup(response.content, 'lxml')
 
@@ -123,6 +121,7 @@ class SSRNSearcher:
             logger.info(f"SSRN search: found {len(papers)} papers for '{query}'")
 
         except Exception as e:
+            raise_if_http_error(e, "SSRN search failed")
             logger.error(f"SSRN search error: {e}")
 
         return papers
@@ -179,14 +178,12 @@ class SSRNSearcher:
 
             url = f"{self.ABSTRACT_URL}/{paper_id}.html"
             response = self.session.get(url, timeout=30)
-
-            if response.status_code == 404:
-                return None
-            response.raise_for_status()
+            raise_for_status(response, f"SSRN paper lookup failed for {paper_id}")
 
             return self._parse_paper_page(response.content, paper_id)
 
         except Exception as e:
+            raise_if_http_error(e, f"SSRN paper lookup failed for {paper_id}")
             logger.error(f"Error fetching SSRN paper {paper_id}: {e}")
             return None
 
@@ -204,9 +201,7 @@ class SSRNSearcher:
 
             url = f"{self.BASE_URL}/sol3/Authors.cfm?action=search&txt_Query={author_id}"
             response = self.session.get(url, timeout=30)
-
-            if response.status_code != 200:
-                return None
+            raise_for_status(response, f"SSRN author lookup failed for {author_id}")
 
             soup = BeautifulSoup(response.content, 'lxml')
 
@@ -220,6 +215,7 @@ class SSRNSearcher:
             return author_info
 
         except Exception as e:
+            raise_if_http_error(e, f"SSRN author lookup failed for {author_id}")
             logger.error(f"Error fetching SSRN author {author_id}: {e}")
             return None
 
@@ -263,15 +259,14 @@ class SSRNSearcher:
                 params["time"] = timeframe
 
             response = self.session.get(url, params=params, timeout=30)
-
-            if response.status_code != 200:
-                return []
+            raise_for_status(response, "SSRN top papers lookup failed")
 
             soup = BeautifulSoup(response.content, 'lxml')
 
             return self._parse_search_results(soup, "top papers")
 
         except Exception as e:
+            raise_if_http_error(e, "SSRN top papers lookup failed")
             logger.error(f"Error fetching top papers: {e}")
             return []
 
@@ -299,15 +294,14 @@ class SSRNSearcher:
                 params["topic"] = topic
 
             response = self.session.get(url, params=params, timeout=30)
-
-            if response.status_code != 200:
-                return []
+            raise_for_status(response, "SSRN new papers lookup failed")
 
             soup = BeautifulSoup(response.content, 'lxml')
 
             return self._parse_search_results(soup, "new papers")
 
         except Exception as e:
+            raise_if_http_error(e, "SSRN new papers lookup failed")
             logger.error(f"Error fetching new papers: {e}")
             return []
 
@@ -336,9 +330,7 @@ class SSRNSearcher:
             download_url = f"{self.DOWNLOAD_URL}?download=yes&paper_id={paper_id}"
 
             response = self.session.get(download_url, timeout=60)
-
-            if response.status_code != 200:
-                return f"PDF download not available for {paper_id}"
+            raise_for_status(response, f"SSRN PDF download failed for {paper_id}")
 
             content_type = response.headers.get("Content-Type", "")
 

@@ -5,6 +5,7 @@ from bs4 import BeautifulSoup
 import time
 import random
 from ..paper import Paper
+from ..http_status import raise_for_status, raise_if_http_error
 import logging
 from PyPDF2 import PdfReader
 import os
@@ -173,9 +174,7 @@ class IACRSearcher(PaperSource):
             # Make request
             response = self.session.get(self.IACR_SEARCH_URL, params=params)
 
-            if response.status_code != 200:
-                logger.error(f"IACR search failed with status {response.status_code}")
-                return papers
+            raise_for_status(response, "IACR search failed")
 
             # Parse results
             soup = BeautifulSoup(response.text, "html.parser")
@@ -198,6 +197,7 @@ class IACRSearcher(PaperSource):
                     papers.append(paper)
 
         except Exception as e:
+            raise_if_http_error(e, "IACR search failed")
             logger.error(f"IACR search error: {e}")
 
         return papers[:max_results]
@@ -323,11 +323,7 @@ class IACRSearcher(PaperSource):
             # Make request
             response = self.session.get(paper_url)
 
-            if response.status_code != 200:
-                logger.error(
-                    f"Failed to fetch paper details: HTTP {response.status_code}"
-                )
-                return None
+            raise_for_status(response, f"IACR paper details fetch failed for {paper_id}")
 
             # Parse the page
             soup = BeautifulSoup(response.text, "html.parser")
@@ -430,6 +426,7 @@ class IACRSearcher(PaperSource):
             )
 
         except Exception as e:
+            raise_if_http_error(e, f"IACR paper details fetch failed for {paper_id}")
             logger.error(f"Error fetching paper details for {paper_id}: {e}")
             return None
 

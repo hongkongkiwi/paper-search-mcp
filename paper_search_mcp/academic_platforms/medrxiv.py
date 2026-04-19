@@ -3,6 +3,7 @@ import requests
 import os
 from datetime import datetime, timedelta
 from ..paper import Paper
+from ..http_status import raise_if_http_error
 from PyPDF2 import PdfReader
 
 class PaperSource:
@@ -85,6 +86,7 @@ class MedRxivSearcher(PaperSource):
                 except requests.exceptions.RequestException as e:
                     tries += 1
                     if tries == self.max_retries:
+                        raise_if_http_error(e, "medRxiv search failed")
                         print(f"Failed to connect to medRxiv API after {self.max_retries} attempts: {e}")
                         break
                     print(f"Attempt {tries} failed, retrying...")
@@ -128,6 +130,8 @@ class MedRxivSearcher(PaperSource):
                 tries += 1
                 if tries < self.max_retries:
                     print(f"Attempt {tries} failed, retrying...")
+                    continue
+                raise_if_http_error(e, f"medRxiv PDF download failed for {paper_id}")
         return f"Failed to download medRxiv PDF after {self.max_retries} attempts for {paper_id}: {type(last_error).__name__}: {last_error}"
     
     def read_paper(self, paper_id: str, save_path: str = "./downloads") -> str:

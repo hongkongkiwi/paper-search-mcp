@@ -71,8 +71,8 @@ class TestCrossRefSearcher(unittest.TestCase):
     @unittest.skipUnless(check_crossref_accessible(), "CrossRef not accessible")
     def test_get_paper_by_invalid_doi(self):
         """Test getting paper by invalid DOI."""
-        paper = self.searcher.get_paper_by_doi("10.9999/invalid.doi.that.does.not.exist")
-        self.assertIsNone(paper)
+        with self.assertRaisesRegex(RuntimeError, "HTTP 404"):
+            self.searcher.get_paper_by_doi("10.9999/invalid.doi.that.does.not.exist")
 
     @unittest.skipUnless(check_crossref_accessible(), "CrossRef not accessible")
     def test_download_pdf_raises_error(self):
