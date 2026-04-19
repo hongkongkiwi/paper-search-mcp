@@ -7,9 +7,20 @@ class HttpStatusError(RuntimeError):
 
 def _message(context: str, response: requests.Response) -> str:
     reason = response.reason or ""
+    status = f"HTTP {response.status_code}"
     if reason:
-        return f"{context}: HTTP {response.status_code} {reason}"
-    return f"{context}: HTTP {response.status_code}"
+        status = f"{status} {reason}"
+
+    if response.status_code == 404:
+        return f"{context}: resource not found ({status})"
+    if response.status_code == 403:
+        return f"{context}: access denied ({status})"
+    if response.status_code == 429:
+        return f"{context}: rate limited ({status})"
+    if response.status_code >= 500:
+        return f"{context}: remote service error ({status})"
+
+    return f"{context}: {status}"
 
 
 def raise_for_status(response: requests.Response, context: str) -> None:

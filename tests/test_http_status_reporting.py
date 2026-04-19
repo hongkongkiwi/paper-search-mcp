@@ -35,7 +35,7 @@ class TestHttpStatusReporting(unittest.TestCase):
         with patch.object(server.crossref_searcher.session, "get", return_value=response):
             result = asyncio.run(server.search_crossref("transformers"))
 
-        self.assertIn("HTTP 503 Service Unavailable", result[0]["error"])
+        self.assertIn("remote service error (HTTP 503 Service Unavailable)", result[0]["error"])
 
     def test_get_crossref_paper_by_doi_reports_http_status(self):
         response = status_response(404, "Not Found")
@@ -43,7 +43,7 @@ class TestHttpStatusReporting(unittest.TestCase):
         with patch.object(server.crossref_searcher.session, "get", return_value=response):
             result = asyncio.run(server.get_crossref_paper_by_doi("10.9999/missing"))
 
-        self.assertIn("HTTP 404 Not Found", result["error"])
+        self.assertIn("resource not found (HTTP 404 Not Found)", result["error"])
 
     def test_search_openalex_reports_http_status(self):
         response = status_response(500, "Internal Server Error")
@@ -51,7 +51,7 @@ class TestHttpStatusReporting(unittest.TestCase):
         with patch.object(server.openalex_searcher.session, "get", return_value=response):
             result = asyncio.run(server.search_openalex("graph neural networks"))
 
-        self.assertIn("HTTP 500 Internal Server Error", result[0]["error"])
+        self.assertIn("remote service error (HTTP 500 Internal Server Error)", result[0]["error"])
 
     def test_get_openalex_paper_reports_http_status(self):
         response = status_response(404, "Not Found")
@@ -59,7 +59,7 @@ class TestHttpStatusReporting(unittest.TestCase):
         with patch.object(server.openalex_searcher.session, "get", return_value=response):
             result = asyncio.run(server.get_openalex_paper("W404"))
 
-        self.assertIn("HTTP 404 Not Found", result["error"])
+        self.assertIn("resource not found (HTTP 404 Not Found)", result["error"])
 
     def test_search_semantic_reports_http_status(self):
         response = status_response(503, "Service Unavailable")
@@ -68,7 +68,7 @@ class TestHttpStatusReporting(unittest.TestCase):
             with patch.object(server.semantic_searcher.session, "get", return_value=response):
                 result = asyncio.run(server.search_semantic("secret sharing", max_results=1))
 
-        self.assertIn("HTTP 503 Service Unavailable", result[0]["error"])
+        self.assertIn("remote service error (HTTP 503 Service Unavailable)", result[0]["error"])
 
     def test_search_biorxiv_reports_final_http_status_after_retries(self):
         response = http_error_response(502, "Bad Gateway")
@@ -77,7 +77,7 @@ class TestHttpStatusReporting(unittest.TestCase):
             result = asyncio.run(server.search_biorxiv("cell biology", max_results=1))
 
         self.assertEqual(mock_get.call_count, server.biorxiv_searcher.max_retries)
-        self.assertIn("HTTP 502 Bad Gateway", result[0]["error"])
+        self.assertIn("remote service error (HTTP 502 Bad Gateway)", result[0]["error"])
 
     def test_search_dblp_reports_non_200_no_content(self):
         response = status_response(204, "No Content")
@@ -106,7 +106,17 @@ class TestHttpStatusReporting(unittest.TestCase):
             with patch.object(server.openalex_searcher.session, "get", return_value=response):
                 result = asyncio.run(server.read_openalex_paper("W123"))
 
-        self.assertIn("HTTP 403 Forbidden", result)
+        self.assertIn("access denied (HTTP 403 Forbidden)", result)
+
+    def test_download_semantic_reports_paper_not_found_for_missing_doi(self):
+        response = status_response(404, "Not Found")
+
+        with patch.object(SemanticSearcher, "get_api_key", return_value=None):
+            with patch.object(server.semantic_searcher.session, "get", return_value=response):
+                result = asyncio.run(server.download_semantic("DOI:10.1039/b403378c"))
+
+        self.assertIn("Semantic Scholar paper lookup failed for DOI:10.1039/b403378c", result)
+        self.assertIn("resource not found (HTTP 404 Not Found)", result)
 
     def test_is_pdf_response_accepts_pdf_content_type(self):
         response = Mock()

@@ -172,6 +172,7 @@ class SemanticSearcher(PaperSource):
         )
         
         for attempt in range(max_retries):
+            context = self._request_error_context(path)
             try:
                 api_key = self.get_api_key()
                 headers = {"x-api-key": api_key} if api_key else {}
@@ -188,16 +189,38 @@ class SemanticSearcher(PaperSource):
                     logger.error(rate_limit_message)
                     raise SemanticRateLimitError(rate_limit_message)
                 
-                raise_for_status(response, f"Semantic Scholar API request failed for {path}")
+                raise_for_status(response, context)
                 return response
             except SemanticRateLimitError:
                 raise
             except Exception as e:
-                raise_if_http_error(e, f"Semantic Scholar API request failed for {path}")
+                raise_if_http_error(e, context)
                 logger.error(f"Error requesting API: {e}")
                 raise
 
         raise RuntimeError("Maximum retry attempts exceeded")
+
+    def _request_error_context(self, path: str) -> str:
+        if path == "paper/search":
+            return "Semantic Scholar search failed"
+        if path.startswith("paper/") and path.endswith("/citations"):
+            paper_id = path[len("paper/"):-len("/citations")]
+            return f"Semantic Scholar citations lookup failed for {paper_id}"
+        if path.startswith("paper/") and path.endswith("/references"):
+            paper_id = path[len("paper/"):-len("/references")]
+            return f"Semantic Scholar references lookup failed for {paper_id}"
+        if path.startswith("paper/") and path.endswith("/related"):
+            paper_id = path[len("paper/"):-len("/related")]
+            return f"Semantic Scholar related papers lookup failed for {paper_id}"
+        if path.startswith("paper/"):
+            paper_id = path[len("paper/"):]
+            return f"Semantic Scholar paper lookup failed for {paper_id}"
+        if path == "author/search":
+            return "Semantic Scholar author search failed"
+        if path.startswith("author/") and path.endswith("/papers"):
+            author_id = path[len("author/"):-len("/papers")]
+            return f"Semantic Scholar author publications lookup failed for {author_id}"
+        return f"Semantic Scholar API request failed for {path}"
 
     def search(self, query: str, year: Optional[str] = None, max_results: int = 10) -> List[Paper]:
         """
