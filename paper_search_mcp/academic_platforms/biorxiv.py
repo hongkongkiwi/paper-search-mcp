@@ -3,6 +3,7 @@ import requests
 import os
 from datetime import datetime, timedelta
 from ..paper import Paper
+from ..http_status import raise_if_http_error, is_pdf_response, non_pdf_error
 from PyPDF2 import PdfReader
 
 class PaperSource:
@@ -84,6 +85,7 @@ class BioRxivSearcher(PaperSource):
                 except requests.exceptions.RequestException as e:
                     tries += 1
                     if tries == self.max_retries:
+                        raise_if_http_error(e, "bioRxiv search failed")
                         print(f"Failed to connect to bioRxiv API after {self.max_retries} attempts: {e}")
                         break
                     print(f"Attempt {tries} failed, retrying...")
@@ -105,28 +107,33 @@ class BioRxivSearcher(PaperSource):
             Path to the downloaded PDF file.
         """
         if not paper_id:
-            raise ValueError("Invalid paper_id: paper_id is empty")
+            return "Error: paper_id is empty"
 
         pdf_url = f"https://www.biorxiv.org/content/{paper_id}v1.full.pdf"
+        last_error = None
         tries = 0
         while tries < self.max_retries:
             try:
-                # Add User-Agent to avoid potential 403 errors
                 headers = {
                     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
                 }
                 response = self.session.get(pdf_url, timeout=self.timeout, headers=headers)
                 response.raise_for_status()
+                if not is_pdf_response(response):
+                    return non_pdf_error(response)
                 os.makedirs(save_path, exist_ok=True)
                 output_file = f"{save_path}/{paper_id.replace('/', '_')}.pdf"
                 with open(output_file, 'wb') as f:
                     f.write(response.content)
                 return output_file
             except requests.exceptions.RequestException as e:
+                last_error = e
                 tries += 1
-                if tries == self.max_retries:
-                    raise Exception(f"Failed to download PDF after {self.max_retries} attempts: {e}")
-                print(f"Attempt {tries} failed, retrying...")
+                if tries < self.max_retries:
+                    print(f"Attempt {tries} failed, retrying...")
+                    continue
+                raise_if_http_error(e, f"bioRxiv PDF download failed for {paper_id}")
+        return f"Failed to download bioRxiv PDF after {self.max_retries} attempts for {paper_id}: {type(last_error).__name__}: {last_error}"
     
     def read_paper(self, paper_id: str, save_path: str = "./downloads") -> str:
         """

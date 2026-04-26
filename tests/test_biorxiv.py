@@ -1,16 +1,11 @@
 import unittest
 import os
 import shutil
-import requests
 from paper_search_mcp.academic_platforms.biorxiv import BioRxivSearcher
+from tests.network import check_url_accessible
 
 def check_api_accessible():
-    """检查 bioRxiv API 是否可访问"""
-    try:
-        response = requests.get("https://api.biorxiv.org/details/biorxiv/0/1", timeout=5)
-        return response.status_code == 200
-    except:
-        return False
+    return check_url_accessible("https://api.biorxiv.org/details/biorxiv/0/1")
 
 class TestBioRxivSearcher(unittest.TestCase):
     @classmethod

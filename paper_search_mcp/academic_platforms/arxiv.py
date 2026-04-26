@@ -4,6 +4,7 @@ from datetime import datetime
 import requests
 import feedparser
 from ..paper import Paper
+from ..http_status import raise_for_status, raise_if_http_error, is_pdf_response, non_pdf_error
 from PyPDF2 import PdfReader
 import os
 
@@ -41,7 +42,7 @@ class ArxivSearcher(PaperSource):
         }
         try:
             response = requests.get(self.BASE_URL, params=params, timeout=30)
-            response.raise_for_status()
+            raise_for_status(response, "arXiv search failed")
             feed = feedparser.parse(response.content)
 
             for entry in feed.entries:
@@ -68,6 +69,7 @@ class ArxivSearcher(PaperSource):
                     print(f"Error parsing arXiv entry: {e}")
                     continue
         except requests.RequestException as e:
+            raise_if_http_error(e, "arXiv search failed")
             print(f"Error fetching from arXiv: {e}")
         return papers
 
@@ -84,7 +86,10 @@ class ArxivSearcher(PaperSource):
         pdf_url = f"https://arxiv.org/pdf/{paper_id}.pdf"
         try:
             response = requests.get(pdf_url, timeout=60)
-            response.raise_for_status()
+            raise_for_status(response, f"arXiv PDF download failed for {paper_id}")
+
+            if not is_pdf_response(response):
+                return non_pdf_error(response)
 
             # Ensure directory exists
             os.makedirs(save_path, exist_ok=True)
@@ -94,6 +99,7 @@ class ArxivSearcher(PaperSource):
                 f.write(response.content)
             return output_file
         except requests.RequestException as e:
+            raise_if_http_error(e, f"arXiv PDF download failed for {paper_id}")
             return f"Error downloading PDF: {e}"
 
     def read_paper(self, paper_id: str, save_path: str = "./downloads") -> str:

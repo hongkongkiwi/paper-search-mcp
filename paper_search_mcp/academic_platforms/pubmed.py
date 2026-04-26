@@ -4,6 +4,7 @@ import requests
 from xml.etree import ElementTree as ET
 from datetime import datetime
 from ..paper import Paper
+from ..http_status import raise_for_status, raise_if_http_error
 import os
 import logging
 
@@ -43,10 +44,11 @@ class PubMedSearcher(PaperSource):
                 'db': 'pubmed',
                 'term': query,
                 'retmax': max_results,
-                'retmode': 'xml'
+                'retmode': 'xml',
+                'sort': 'relevance'
             }
             search_response = requests.get(self.SEARCH_URL, params=search_params, timeout=30)
-            search_response.raise_for_status()
+            raise_for_status(search_response, "PubMed search failed")
             search_root = ET.fromstring(search_response.content)
             ids = [id.text for id in search_root.findall('.//Id')]
 
@@ -60,7 +62,7 @@ class PubMedSearcher(PaperSource):
                 'retmode': 'xml'
             }
             fetch_response = requests.get(self.FETCH_URL, params=fetch_params, timeout=30)
-            fetch_response.raise_for_status()
+            raise_for_status(fetch_response, "PubMed search failed")
             fetch_root = ET.fromstring(fetch_response.content)
 
             for article in fetch_root.findall('.//PubmedArticle'):
@@ -73,6 +75,7 @@ class PubMedSearcher(PaperSource):
                     continue
 
         except requests.RequestException as e:
+            raise_if_http_error(e, "PubMed search failed")
             logger.error(f"Error fetching from PubMed: {e}")
         except ET.ParseError as e:
             logger.error(f"Error parsing PubMed response: {e}")

@@ -1,16 +1,17 @@
 import unittest
 import os
-import requests
-from paper_search_mcp.academic_platforms.semantic import SemanticSearcher
+from unittest.mock import Mock, call, patch
+from paper_search_mcp.academic_platforms.semantic import SemanticSearcher, SemanticRateLimitError
+from paper_search_mcp.http_status import SEMANTIC_SCHOLAR_429_NOTE
+from tests.network import check_url_accessible
 
 
 def check_semantic_accessible():
-    """Check if Semantic Scholar is accessible"""
-    try:
-        response = requests.get("https://api.semanticscholar.org/graph/v1/paper/5bbfdf2e62f0508c65ba6de9c72fe2066fd98138", timeout=5)
-        return response.status_code == 200
-    except:
-        return False
+    return check_url_accessible(
+        "https://api.semanticscholar.org/graph/v1/paper/5bbfdf2e62f0508c65ba6de9c72fe2066fd98138",
+        retries=3,
+        retry_statuses=(429,),
+    )
 
 
 class TestSemanticSearcher(unittest.TestCase):
@@ -53,6 +54,19 @@ class TestSemanticSearcher(unittest.TestCase):
         """Test max_results parameter"""
         results = self.searcher.search("cryptography", max_results=2)
         self.assertLessEqual(len(results), 2)
+
+    def test_request_api_retries_429_with_shorter_backoff(self):
+        response = Mock(status_code=429)
+
+        with patch.object(SemanticSearcher, "get_api_key", return_value=None):
+            with patch.object(self.searcher.session, "get", return_value=response) as mock_get:
+                with patch("paper_search_mcp.academic_platforms.semantic.time.sleep") as mock_sleep:
+                    with self.assertRaises(SemanticRateLimitError) as cm:
+                        self.searcher.request_api("paper/search", {"query": "secret sharing"})
+
+        self.assertEqual(mock_get.call_count, 3)
+        self.assertEqual(mock_sleep.call_args_list, [call(1), call(2)])
+        self.assertIn(SEMANTIC_SCHOLAR_429_NOTE, str(cm.exception))
 
     @unittest.skipUnless(check_semantic_accessible(), "Semantic Scholar not accessible")
     def test_download_pdf_functionality(self):
@@ -199,54 +213,20 @@ class TestSemanticSearcher(unittest.TestCase):
             self.fail("Could not fetch paper details")
 
     @unittest.skipUnless(check_semantic_accessible(), "Semantic Scholar not accessible")
-    def test_search_with_fetch_details(self):
-        """Test search functionality with fetch_details parameter"""
-        # Test with fetch_details=True (detailed information)
-        print("\nTesting search with fetch_details=True")
-        detailed_papers = self.searcher.search(
-            "cryptography", max_results=2, fetch_details=True
-        )
+    def test_search_returns_semantic_papers(self):
+        """Test that search returns parsed Semantic Scholar papers."""
+        papers = self.searcher.search("cryptography", max_results=2)
 
-        self.assertIsInstance(detailed_papers, list)
-        self.assertLessEqual(len(detailed_papers), 2)
+        self.assertIsInstance(papers, list)
+        self.assertLessEqual(len(papers), 2)
 
-        if detailed_papers:
-            paper = detailed_papers[0]
+        if papers:
+            paper = papers[0]
             self.assertEqual(paper.source, "semantic")
-
-            # Detailed papers should have more complete information
-            print(f"Detailed paper: {paper.title}")
-            print(f"Authors: {len(paper.authors)} authors")
-            print(f"Keywords: {len(paper.keywords)} keywords")
-            print(f"Abstract length: {len(paper.abstract)} chars")
-
-            # Should have keywords and publication info if available
-            if paper.keywords:
-                self.assertIsInstance(paper.keywords, list)
-                print(f"Keywords found: {', '.join(paper.keywords[:3])}...")
-
-            if paper.extra:
-                pub_info = paper.extra.get("publication_info", "")
-                if pub_info:
-                    print(f"Publication info: {pub_info[:50]}...")
-
-        # Test with fetch_details=False (compact information)
-        print("\nTesting search with fetch_details=False")
-        compact_papers = self.searcher.search(
-            "cryptography", max_results=2, fetch_details=False
-        )
-
-        self.assertIsInstance(compact_papers, list)
-        self.assertLessEqual(len(compact_papers), 2)
-
-        if compact_papers:
-            paper = compact_papers[0]
-            self.assertEqual(paper.source, "semantic")
-
-            print(f"Compact paper: {paper.title}")
-            print(f"Authors: {len(paper.authors)} authors")
-            print(f"Categories: {', '.join(paper.categories)}")
-            print(f"Abstract preview length: {len(paper.abstract)} chars")
+            self.assertTrue(paper.title)
+            self.assertIsInstance(paper.authors, list)
+            self.assertIsInstance(paper.categories, list)
+            self.assertIsInstance(paper.abstract, str)
 
     @unittest.skipUnless(check_semantic_accessible(), "Semantic Scholar not accessible")
     def test_search_performance_comparison(self):

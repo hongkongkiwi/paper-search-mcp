@@ -1,16 +1,13 @@
 """Tests for DBLP searcher."""
 import unittest
-import requests
 from paper_search_mcp.academic_platforms.dblp import DBLPSearcher
+from tests.network import check_url_accessible
 
 
 def check_dblp_accessible():
-    """Check if DBLP API is accessible."""
-    try:
-        response = requests.get("https://dblp.org/search/publ/api?q=machine+learning&h=1&format=xml", timeout=5)
-        return response.status_code == 200
-    except:
-        return False
+    return check_url_accessible(
+        "https://dblp.org/search/publ/api?q=machine+learning&h=1&format=xml"
+    )
 
 
 class TestDBLPSearcher(unittest.TestCase):

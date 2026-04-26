@@ -10,6 +10,7 @@ import logging
 import os
 
 from ..paper import Paper
+from ..http_status import raise_for_status, raise_if_http_error
 
 logger = logging.getLogger(__name__)
 
@@ -114,7 +115,7 @@ class HALSearcher:
                 params["fq"] = " AND ".join(filters)
 
             response = self.session.get(self.SEARCH_URL, params=params, timeout=30)
-            response.raise_for_status()
+            raise_for_status(response, "HAL search failed")
             data = response.json()
 
             docs = data.get("response", {}).get("docs", [])
@@ -131,6 +132,7 @@ class HALSearcher:
             logger.info(f"HAL search: found {len(papers)} results for '{query}'")
 
         except Exception as e:
+            raise_if_http_error(e, "HAL search failed")
             logger.error(f"HAL search error: {e}")
 
         return papers
@@ -183,10 +185,7 @@ class HALSearcher:
         try:
             url = f"{self.DOCUMENT_URL}/{doc_id}"
             response = self.session.get(url, timeout=30)
-
-            if response.status_code == 404:
-                return None
-            response.raise_for_status()
+            raise_for_status(response, f"HAL document lookup failed for {doc_id}")
             data = response.json()
 
             if data.get("response", {}).get("numFound", 0) > 0:
@@ -196,6 +195,7 @@ class HALSearcher:
             return None
 
         except Exception as e:
+            raise_if_http_error(e, f"HAL document lookup failed for {doc_id}")
             logger.error(f"Error fetching HAL document {doc_id}: {e}")
             return None
 
@@ -348,10 +348,7 @@ class HALSearcher:
         try:
             url = f"{self.AUTHOR_URL}/{author_id}"
             response = self.session.get(url, timeout=30)
-
-            if response.status_code == 404:
-                return None
-            response.raise_for_status()
+            raise_for_status(response, f"HAL author lookup failed for {author_id}")
             data = response.json()
 
             if data.get("response", {}).get("numFound", 0) > 0:
@@ -360,6 +357,7 @@ class HALSearcher:
             return None
 
         except Exception as e:
+            raise_if_http_error(e, f"HAL author lookup failed for {author_id}")
             logger.error(f"Error fetching HAL author {author_id}: {e}")
             return None
 
@@ -386,7 +384,7 @@ class HALSearcher:
                 return f"No file available for {doc_id}"
 
             response = self.session.get(file_url, timeout=60)
-            response.raise_for_status()
+            raise_for_status(response, f"HAL file download failed for {doc_id}")
 
             # Determine filename
             filename = doc.extra.get("filename", f"hal_{doc_id}.pdf")
@@ -398,6 +396,7 @@ class HALSearcher:
             return file_path
 
         except Exception as e:
+            raise_if_http_error(e, f"HAL file download failed for {doc_id}")
             logger.error(f"Error downloading HAL file: {e}")
             return f"Failed to download file: {e}"
 

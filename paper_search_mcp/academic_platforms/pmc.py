@@ -9,6 +9,7 @@ from datetime import datetime
 import requests
 import xml.etree.ElementTree as ET
 from ..paper import Paper
+from ..http_status import raise_for_status, raise_if_http_error, is_pdf_response, non_pdf_error
 from PyPDF2 import PdfReader
 import os
 import logging
@@ -65,7 +66,8 @@ class PMCSearcher:
                 "retmax": max_results,
                 "retmode": "json",
                 "tool": "paper_search_mcp",
-                "email": "paper-search-mcp@example.com"
+                "email": "paper-search-mcp@example.com",
+                "sort": "relevance"
             }
 
             # Add year filter if provided
@@ -81,7 +83,7 @@ class PMCSearcher:
                     params["maxdate"] = f"{year}/12/31"
 
             response = self.session.get(search_url, params=params, timeout=30)
-            response.raise_for_status()
+            raise_for_status(response, "PMC search failed")
             data = response.json()
 
             pmcids = data.get("esearchresult", {}).get("idlist", [])
@@ -101,6 +103,7 @@ class PMCSearcher:
                     continue
 
         except Exception as e:
+            raise_if_http_error(e, "PMC search failed")
             logger.error(f"Error searching PMC: {e}")
 
         return papers
@@ -129,11 +132,12 @@ class PMCSearcher:
             }
 
             response = self.session.get(fetch_url, params=params, timeout=30)
-            response.raise_for_status()
+            raise_for_status(response, f"PMC paper lookup failed for PMC{pmcid}")
 
             return self._parse_pmc_xml(response.content, pmcid)
 
         except Exception as e:
+            raise_if_http_error(e, f"PMC paper lookup failed for PMC{pmcid}")
             logger.error(f"Error fetching paper {pmcid}: {e}")
             return None
 
@@ -258,7 +262,10 @@ class PMCSearcher:
             pdf_url = f"https://www.ncbi.nlm.nih.gov/pmc/articles/{full_pmcid}/pdf/"
 
             response = self.session.get(pdf_url, timeout=30)
-            response.raise_for_status()
+            raise_for_status(response, f"PMC PDF download failed for {full_pmcid}")
+
+            if not is_pdf_response(response):
+                return non_pdf_error(response)
 
             filename = f"{full_pmcid}.pdf"
             file_path = os.path.join(save_path, filename)
@@ -284,8 +291,8 @@ class PMCSearcher:
         """
         pdf_path = self.download_pdf(paper_id, save_path)
 
-        if pdf_path.startswith("Failed"):
-            return ""
+        if not os.path.isfile(pdf_path):
+            return pdf_path
 
         try:
             reader = PdfReader(pdf_path)
@@ -320,11 +327,12 @@ class PMCSearcher:
             }
 
             response = self.session.get(fetch_url, params=params, timeout=30)
-            response.raise_for_status()
+            raise_for_status(response, f"PMC full text XML fetch failed for PMC{pmcid}")
 
             return response.text
 
         except Exception as e:
+            raise_if_http_error(e, f"PMC full text XML fetch failed for PMC{pmcid}")
             logger.error(f"Error fetching full text XML for {paper_id}: {e}")
             return None
 

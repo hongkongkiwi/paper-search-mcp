@@ -1,16 +1,13 @@
 """Tests for PubMed Central searcher."""
 import unittest
-import requests
 from paper_search_mcp.academic_platforms.pmc import PMCSearcher
+from tests.network import check_url_accessible
 
 
 def check_pmc_accessible():
-    """Check if PMC API is accessible."""
-    try:
-        response = requests.get("https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pmc&term=cancer&retmax=1", timeout=5)
-        return response.status_code == 200
-    except:
-        return False
+    return check_url_accessible(
+        "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pmc&term=cancer&retmax=1"
+    )
 
 
 class TestPMCSearcher(unittest.TestCase):

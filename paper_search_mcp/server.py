@@ -1,14 +1,22 @@
 # paper_search_mcp/server.py
 from typing import List, Dict, Optional
+import os
+import logging
 import httpx
-from mcp.server.fastmcp import FastMCP
+from urllib.parse import urlparse, unquote
+from urllib.request import url2pathname
+
+logger = logging.getLogger(__name__)
+import mcp.types as types
+from fastmcp.server import _convert_to_content
+from mcp.server.fastmcp import FastMCP, Context
 from .academic_platforms.arxiv import ArxivSearcher
 from .academic_platforms.pubmed import PubMedSearcher
 from .academic_platforms.biorxiv import BioRxivSearcher
 from .academic_platforms.medrxiv import MedRxivSearcher
 from .academic_platforms.google_scholar import GoogleScholarSearcher
 from .academic_platforms.iacr import IACRSearcher
-from .academic_platforms.semantic import SemanticSearcher
+from .academic_platforms.semantic import SemanticSearcher, SemanticRateLimitError
 from .academic_platforms.crossref import CrossRefSearcher
 from .academic_platforms.openalex import OpenAlexSearcher
 from .academic_platforms.pmc import PMCSearcher
@@ -17,11 +25,22 @@ from .academic_platforms.hal import HALSearcher
 from .academic_platforms.ssrn import SSRNSearcher
 from .academic_platforms.dblp import DBLPSearcher
 from .deduplication import deduplicate_paper_dicts, merge_duplicate_papers, dict_to_paper, find_duplicates
+from . import cross_source
 
 from .paper import Paper
 
+
+class PaperSearchMCP(FastMCP):
+    async def call_tool(self, name: str, arguments: dict):
+        context = self.get_context()
+        result = await self._tool_manager.call_tool(name, arguments, context=context)
+        if isinstance(result, list) and not result:
+            return [types.TextContent(type="text", text="No results found (zero matches).")]
+        return _convert_to_content(result)
+
+
 # Initialize MCP server
-mcp = FastMCP("paper_search_server")
+mcp = PaperSearchMCP("paper_search_server")
 
 # Instances of searchers
 arxiv_searcher = ArxivSearcher()
@@ -40,13 +59,74 @@ ssrn_searcher = SSRNSearcher()
 dblp_searcher = DBLPSearcher()
 
 
+def _apply_filename(result: str, filename: Optional[str]) -> str:
+    """Rename a downloaded file if a custom filename was provided.
+
+    Args:
+        result: The return value from a download method (file path or error string).
+        filename: Optional custom filename. '.pdf' extension is added if missing.
+
+    Returns:
+        The new file path, or the original result if no rename was needed.
+    """
+    if not filename or not os.path.isfile(result):
+        return result
+
+    assert not os.path.isabs(filename), f"filename must not be absolute: {filename}"
+
+    basename = os.path.basename(filename.replace("\\", "/"))
+    assert basename, "filename must not be empty"
+
+    if not basename.lower().endswith('.pdf'):
+        basename += '.pdf'
+
+    new_path = os.path.join(os.path.dirname(result), basename)
+    assert not os.path.exists(new_path), f"filename already exists: {basename}"
+
+    os.rename(result, new_path)
+    return new_path
+
+
+def _file_uri_to_path(uri: str) -> str:
+    parsed = urlparse(uri)
+    assert parsed.scheme == "file"
+
+    path = url2pathname(unquote(parsed.path))
+    if parsed.netloc and parsed.netloc != "localhost":
+        return f"//{parsed.netloc}{path}"
+
+    return path
+
+
+async def _resolve_save_path(save_path: str, ctx: Context = None) -> str:
+    if os.path.isabs(save_path):
+        return save_path
+
+    if ctx is None:
+        raise ValueError(f"relative save_path requires MCP client context: {save_path}")
+
+    supports_roots = ctx.session.check_client_capability(
+        types.ClientCapabilities(roots=types.RootsCapability())
+    )
+    if not supports_roots:
+        raise ValueError(f"relative save_path requires MCP client roots support: {save_path}")
+
+    roots_result = await ctx.session.list_roots()
+    if not roots_result.roots:
+        raise ValueError("Client advertised roots support but returned no roots")
+
+    root_path = _file_uri_to_path(str(roots_result.roots[0].uri))
+    resolved_root_path = os.path.realpath(root_path)
+    resolved_save_path = os.path.realpath(os.path.join(resolved_root_path, save_path))
+    if os.path.commonpath([resolved_root_path, resolved_save_path]) != resolved_root_path:
+        raise ValueError(f"save_path escapes client root: {save_path}")
+    return resolved_save_path
+
+
 # Synchronous helper to adapt synchronous searchers
 def sync_search(searcher, query: str, max_results: int, **kwargs) -> List[Dict]:
     """Synchronous search wrapper for searchers."""
-    if 'year' in kwargs:
-        papers = searcher.search(query, year=kwargs['year'], max_results=max_results)
-    else:
-        papers = searcher.search(query, max_results=max_results)
+    papers = searcher.search(query, max_results=max_results, **kwargs)
     return [paper.to_dict() for paper in papers]
 
 
@@ -61,8 +141,12 @@ async def search_arxiv(query: str, max_results: int = 10) -> List[Dict]:
     Returns:
         List of paper metadata in dictionary format.
     """
-    papers = sync_search(arxiv_searcher, query, max_results)
-    return papers if papers else []
+    try:
+        papers = sync_search(arxiv_searcher, query, max_results)
+        return papers if papers else []
+    except Exception as e:
+        logger.error(f"search_arxiv failed: {e}")
+        return [{"error": f"arXiv search failed: {type(e).__name__}: {e}"}]
 
 
 @mcp.tool()
@@ -75,8 +159,12 @@ async def search_pubmed(query: str, max_results: int = 10) -> List[Dict]:
     Returns:
         List of paper metadata in dictionary format.
     """
-    papers = sync_search(pubmed_searcher, query, max_results)
-    return papers if papers else []
+    try:
+        papers = sync_search(pubmed_searcher, query, max_results)
+        return papers if papers else []
+    except Exception as e:
+        logger.error(f"search_pubmed failed: {e}")
+        return [{"error": f"PubMed search failed: {type(e).__name__}: {e}"}]
 
 
 @mcp.tool()
@@ -89,8 +177,12 @@ async def search_biorxiv(query: str, max_results: int = 10) -> List[Dict]:
     Returns:
         List of paper metadata in dictionary format.
     """
-    papers = sync_search(biorxiv_searcher, query, max_results)
-    return papers if papers else []
+    try:
+        papers = sync_search(biorxiv_searcher, query, max_results)
+        return papers if papers else []
+    except Exception as e:
+        logger.error(f"search_biorxiv failed: {e}")
+        return [{"error": f"bioRxiv search failed: {type(e).__name__}: {e}"}]
 
 
 @mcp.tool()
@@ -103,8 +195,12 @@ async def search_medrxiv(query: str, max_results: int = 10) -> List[Dict]:
     Returns:
         List of paper metadata in dictionary format.
     """
-    papers = sync_search(medrxiv_searcher, query, max_results)
-    return papers if papers else []
+    try:
+        papers = sync_search(medrxiv_searcher, query, max_results)
+        return papers if papers else []
+    except Exception as e:
+        logger.error(f"search_medrxiv failed: {e}")
+        return [{"error": f"medRxiv search failed: {type(e).__name__}: {e}"}]
 
 
 @mcp.tool()
@@ -117,8 +213,12 @@ async def search_google_scholar(query: str, max_results: int = 10) -> List[Dict]
     Returns:
         List of paper metadata in dictionary format.
     """
-    papers = sync_search(google_scholar_searcher, query, max_results)
-    return papers if papers else []
+    try:
+        papers = sync_search(google_scholar_searcher, query, max_results)
+        return papers if papers else []
+    except Exception as e:
+        logger.error(f"search_google_scholar failed: {e}")
+        return [{"error": f"Google Scholar search failed: {type(e).__name__}: {e}"}]
 
 
 @mcp.tool()
@@ -134,76 +234,133 @@ async def search_iacr(
     Returns:
         List of paper metadata in dictionary format.
     """
-    papers = iacr_searcher.search(query, max_results, fetch_details)
-    return [paper.to_dict() for paper in papers] if papers else []
+    try:
+        papers = iacr_searcher.search(query, max_results, fetch_details)
+        return [paper.to_dict() for paper in papers] if papers else []
+    except Exception as e:
+        logger.error(f"search_iacr failed: {e}")
+        return [{"error": f"IACR search failed: {type(e).__name__}: {e}"}]
 
 
 @mcp.tool()
-async def download_arxiv(paper_id: str, save_path: str = "./downloads") -> str:
+async def download_arxiv(
+    paper_id: str,
+    save_path: str = "./downloads",
+    filename: Optional[str] = None,
+    ctx: Context = None,
+) -> str:
     """Download PDF of an arXiv paper.
 
     Args:
         paper_id: arXiv paper ID (e.g., '2106.12345').
         save_path: Directory to save the PDF (default: './downloads').
+        filename: Optional custom filename for the saved PDF (e.g., 'my_paper.pdf').
     Returns:
         Path to the downloaded PDF file.
     """
-    return arxiv_searcher.download_pdf(paper_id, save_path)
+    try:
+        save_path = await _resolve_save_path(save_path, ctx)
+        result = arxiv_searcher.download_pdf(paper_id, save_path)
+        return _apply_filename(result, filename)
+    except Exception as e:
+        logger.error(f"download_arxiv failed: {e}")
+        return f"Download failed for arXiv paper {paper_id}: {type(e).__name__}: {e}"
 
 
 @mcp.tool()
-async def download_pubmed(paper_id: str, save_path: str = "./downloads") -> str:
+async def download_pubmed(paper_id: str, save_path: str = "./downloads", filename: Optional[str] = None) -> str:
     """Attempt to download PDF of a PubMed paper.
 
     Args:
         paper_id: PubMed ID (PMID).
         save_path: Directory to save the PDF (default: './downloads').
+        filename: Optional custom filename for the saved PDF (e.g., 'my_paper.pdf').
     Returns:
         str: Message indicating that direct PDF download is not supported.
     """
     try:
-        return pubmed_searcher.download_pdf(paper_id, save_path)
+        result = pubmed_searcher.download_pdf(paper_id, save_path)
+        return _apply_filename(result, filename)
     except NotImplementedError as e:
         return str(e)
+    except Exception as e:
+        logger.error(f"download_pubmed failed: {e}")
+        return f"Download failed for PubMed paper {paper_id}: {type(e).__name__}: {e}"
 
 
 @mcp.tool()
-async def download_biorxiv(paper_id: str, save_path: str = "./downloads") -> str:
+async def download_biorxiv(
+    paper_id: str,
+    save_path: str = "./downloads",
+    filename: Optional[str] = None,
+    ctx: Context = None,
+) -> str:
     """Download PDF of a bioRxiv paper.
 
     Args:
         paper_id: bioRxiv DOI.
         save_path: Directory to save the PDF (default: './downloads').
+        filename: Optional custom filename for the saved PDF (e.g., 'my_paper.pdf').
     Returns:
         Path to the downloaded PDF file.
     """
-    return biorxiv_searcher.download_pdf(paper_id, save_path)
+    try:
+        save_path = await _resolve_save_path(save_path, ctx)
+        result = biorxiv_searcher.download_pdf(paper_id, save_path)
+        return _apply_filename(result, filename)
+    except Exception as e:
+        logger.error(f"download_biorxiv failed: {e}")
+        return f"Download failed for bioRxiv paper {paper_id}: {type(e).__name__}: {e}"
 
 
 @mcp.tool()
-async def download_medrxiv(paper_id: str, save_path: str = "./downloads") -> str:
+async def download_medrxiv(
+    paper_id: str,
+    save_path: str = "./downloads",
+    filename: Optional[str] = None,
+    ctx: Context = None,
+) -> str:
     """Download PDF of a medRxiv paper.
 
     Args:
         paper_id: medRxiv DOI.
         save_path: Directory to save the PDF (default: './downloads').
+        filename: Optional custom filename for the saved PDF (e.g., 'my_paper.pdf').
     Returns:
         Path to the downloaded PDF file.
     """
-    return medrxiv_searcher.download_pdf(paper_id, save_path)
+    try:
+        save_path = await _resolve_save_path(save_path, ctx)
+        result = medrxiv_searcher.download_pdf(paper_id, save_path)
+        return _apply_filename(result, filename)
+    except Exception as e:
+        logger.error(f"download_medrxiv failed: {e}")
+        return f"Download failed for medRxiv paper {paper_id}: {type(e).__name__}: {e}"
 
 
 @mcp.tool()
-async def download_iacr(paper_id: str, save_path: str = "./downloads") -> str:
+async def download_iacr(
+    paper_id: str,
+    save_path: str = "./downloads",
+    filename: Optional[str] = None,
+    ctx: Context = None,
+) -> str:
     """Download PDF of an IACR ePrint paper.
 
     Args:
         paper_id: IACR paper ID (e.g., '2009/101').
         save_path: Directory to save the PDF (default: './downloads').
+        filename: Optional custom filename for the saved PDF (e.g., 'my_paper.pdf').
     Returns:
         Path to the downloaded PDF file.
     """
-    return iacr_searcher.download_pdf(paper_id, save_path)
+    try:
+        save_path = await _resolve_save_path(save_path, ctx)
+        result = iacr_searcher.download_pdf(paper_id, save_path)
+        return _apply_filename(result, filename)
+    except Exception as e:
+        logger.error(f"download_iacr failed: {e}")
+        return f"Download failed for IACR paper {paper_id}: {type(e).__name__}: {e}"
 
 
 @mcp.tool()
@@ -219,8 +376,8 @@ async def read_arxiv_paper(paper_id: str, save_path: str = "./downloads") -> str
     try:
         return arxiv_searcher.read_paper(paper_id, save_path)
     except Exception as e:
-        print(f"Error reading paper {paper_id}: {e}")
-        return ""
+        logger.error(f"read_arxiv_paper failed: {e}")
+        return f"Failed to read arXiv paper {paper_id}: {type(e).__name__}: {e}"
 
 
 @mcp.tool()
@@ -233,7 +390,11 @@ async def read_pubmed_paper(paper_id: str, save_path: str = "./downloads") -> st
     Returns:
         str: Message indicating that direct paper reading is not supported.
     """
-    return pubmed_searcher.read_paper(paper_id, save_path)
+    try:
+        return pubmed_searcher.read_paper(paper_id, save_path)
+    except Exception as e:
+        logger.error(f"read_pubmed_paper failed: {e}")
+        return f"Failed to read PubMed paper {paper_id}: {type(e).__name__}: {e}"
 
 
 @mcp.tool()
@@ -249,8 +410,8 @@ async def read_biorxiv_paper(paper_id: str, save_path: str = "./downloads") -> s
     try:
         return biorxiv_searcher.read_paper(paper_id, save_path)
     except Exception as e:
-        print(f"Error reading paper {paper_id}: {e}")
-        return ""
+        logger.error(f"read_biorxiv_paper failed: {e}")
+        return f"Failed to read bioRxiv paper {paper_id}: {type(e).__name__}: {e}"
 
 
 @mcp.tool()
@@ -266,8 +427,8 @@ async def read_medrxiv_paper(paper_id: str, save_path: str = "./downloads") -> s
     try:
         return medrxiv_searcher.read_paper(paper_id, save_path)
     except Exception as e:
-        print(f"Error reading paper {paper_id}: {e}")
-        return ""
+        logger.error(f"read_medrxiv_paper failed: {e}")
+        return f"Failed to read medRxiv paper {paper_id}: {type(e).__name__}: {e}"
 
 
 @mcp.tool()
@@ -283,13 +444,16 @@ async def read_iacr_paper(paper_id: str, save_path: str = "./downloads") -> str:
     try:
         return iacr_searcher.read_paper(paper_id, save_path)
     except Exception as e:
-        print(f"Error reading paper {paper_id}: {e}")
-        return ""
+        logger.error(f"read_iacr_paper failed: {e}")
+        return f"Failed to read IACR paper {paper_id}: {type(e).__name__}: {e}"
 
 
 @mcp.tool()
 async def search_semantic(query: str, year: Optional[str] = None, max_results: int = 10) -> List[Dict]:
     """Search academic papers from Semantic Scholar.
+
+    Semantic Scholar 429 rate limits are common because unauthenticated requests
+    share a rate limit across all users. If that happens, trying again may work.
 
     Args:
         query: Search query string (e.g., 'machine learning').
@@ -298,20 +462,36 @@ async def search_semantic(query: str, year: Optional[str] = None, max_results: i
     Returns:
         List of paper metadata in dictionary format.
     """
-    kwargs = {}
-    if year is not None:
-        kwargs['year'] = year
-    papers = sync_search(semantic_searcher, query, max_results, **kwargs)
-    return papers if papers else []
+    try:
+        kwargs = {}
+        if year is not None:
+            kwargs['year'] = year
+        papers = sync_search(semantic_searcher, query, max_results, **kwargs)
+        return papers if papers else []
+    except SemanticRateLimitError as e:
+        logger.error(f"search_semantic rate limited: {e}")
+        return [{"error": str(e), "status_code": 429}]
+    except Exception as e:
+        logger.error(f"search_semantic failed: {e}")
+        return [{"error": f"Semantic Scholar search failed: {type(e).__name__}: {e}"}]
 
 
 @mcp.tool()
-async def download_semantic(paper_id: str, save_path: str = "./downloads") -> str:
-    """Download PDF of a Semantic Scholar paper.    
+async def download_semantic(
+    paper_id: str,
+    save_path: str = "./downloads",
+    filename: Optional[str] = None,
+    ctx: Context = None,
+) -> str:
+    """Download PDF of a Semantic Scholar paper.
+
+    Semantic Scholar 429 rate limits are common because unauthenticated requests
+    share a rate limit across all users. If that happens, trying again may work.
 
     Args:
-        paper_id: Semantic Scholar paper ID, Paper identifier in one of the following formats:
+        paper_id: Semantic Scholar paper identifier in one of the following formats:
             - Semantic Scholar ID (e.g., "649def34f8be52c8b66281af98ae884c09aef38b")
+            - CorpusId:<id> (e.g., "CorpusId:215416146")
             - DOI:<doi> (e.g., "DOI:10.18653/v1/N18-3011")
             - ARXIV:<id> (e.g., "ARXIV:2106.15928")
             - MAG:<id> (e.g., "MAG:112218234")
@@ -320,19 +500,30 @@ async def download_semantic(paper_id: str, save_path: str = "./downloads") -> st
             - PMCID:<id> (e.g., "PMCID:2323736")
             - URL:<url> (e.g., "URL:https://arxiv.org/abs/2106.15928v1")
         save_path: Directory to save the PDF (default: './downloads').
+        filename: Optional custom filename for the saved PDF (e.g., 'my_paper.pdf').
     Returns:
         Path to the downloaded PDF file.
-    """ 
-    return semantic_searcher.download_pdf(paper_id, save_path)
+    """
+    try:
+        save_path = await _resolve_save_path(save_path, ctx)
+        result = semantic_searcher.download_pdf(paper_id, save_path)
+        return _apply_filename(result, filename)
+    except Exception as e:
+        logger.error(f"download_semantic failed: {e}")
+        return f"Download failed for Semantic Scholar paper {paper_id}: {type(e).__name__}: {e}"
 
 
 @mcp.tool()
 async def read_semantic_paper(paper_id: str, save_path: str = "./downloads") -> str:
     """Read and extract text content from a Semantic Scholar paper.
 
+    Semantic Scholar 429 rate limits are common because unauthenticated requests
+    share a rate limit across all users. If that happens, trying again may work.
+
     Args:
-        paper_id: Semantic Scholar paper ID, Paper identifier in one of the following formats:
+        paper_id: Semantic Scholar paper identifier in one of the following formats:
             - Semantic Scholar ID (e.g., "649def34f8be52c8b66281af98ae884c09aef38b")
+            - CorpusId:<id> (e.g., "CorpusId:215416146")
             - DOI:<doi> (e.g., "DOI:10.18653/v1/N18-3011")
             - ARXIV:<id> (e.g., "ARXIV:2106.15928")
             - MAG:<id> (e.g., "MAG:112218234")
@@ -347,16 +538,28 @@ async def read_semantic_paper(paper_id: str, save_path: str = "./downloads") -> 
     try:
         return semantic_searcher.read_paper(paper_id, save_path)
     except Exception as e:
-        print(f"Error reading paper {paper_id}: {e}")
-        return ""
+        logger.error(f"read_semantic_paper failed: {e}")
+        return f"Failed to read Semantic Scholar paper {paper_id}: {type(e).__name__}: {e}"
 
 
 @mcp.tool()
 async def get_semantic_citations(paper_id: str, max_results: int = 20) -> List[Dict]:
     """Get papers that cite this Semantic Scholar paper (forward citations).
 
+    Semantic Scholar 429 rate limits are common because unauthenticated requests
+    share a rate limit across all users. If that happens, trying again may work.
+
     Args:
-        paper_id: Semantic Scholar paper ID (e.g., "649def34f8be52c8b66281af98ae884c09aef38b")
+        paper_id: Semantic Scholar paper identifier in one of the following formats:
+            - Semantic Scholar ID (e.g., "649def34f8be52c8b66281af98ae884c09aef38b")
+            - CorpusId:<id> (e.g., "CorpusId:215416146")
+            - DOI:<doi> (e.g., "DOI:10.18653/v1/N18-3011")
+            - ARXIV:<id> (e.g., "ARXIV:2106.15928")
+            - MAG:<id> (e.g., "MAG:112218234")
+            - ACL:<id> (e.g., "ACL:W12-3903")
+            - PMID:<id> (e.g., "PMID:19872477")
+            - PMCID:<id> (e.g., "PMCID:2323736")
+            - URL:<url> (e.g., "URL:https://arxiv.org/abs/2106.15928v1")
         max_results: Maximum number of citing papers to return (default: 20)
 
     Returns:
@@ -365,16 +568,32 @@ async def get_semantic_citations(paper_id: str, max_results: int = 20) -> List[D
     Example:
         await get_semantic_citations("5bbfdf2e62f0508c65ba6de9c72fe2066fd98138", 10)
     """
-    papers = semantic_searcher.get_citations(paper_id, max_results)
-    return [paper.to_dict() for paper in papers] if papers else []
+    try:
+        papers = semantic_searcher.get_citations(paper_id, max_results)
+        return [paper.to_dict() for paper in papers] if papers else []
+    except Exception as e:
+        logger.error(f"get_semantic_citations failed: {e}")
+        return [{"error": f"Semantic Scholar citations lookup failed for {paper_id}: {type(e).__name__}: {e}"}]
 
 
 @mcp.tool()
 async def get_semantic_references(paper_id: str, max_results: int = 20) -> List[Dict]:
     """Get papers referenced by this Semantic Scholar paper (backward citations).
 
+    Semantic Scholar 429 rate limits are common because unauthenticated requests
+    share a rate limit across all users. If that happens, trying again may work.
+
     Args:
-        paper_id: Semantic Scholar paper ID (e.g., "649def34f8be52c8b66281af98ae884c09aef38b")
+        paper_id: Semantic Scholar paper identifier in one of the following formats:
+            - Semantic Scholar ID (e.g., "649def34f8be52c8b66281af98ae884c09aef38b")
+            - CorpusId:<id> (e.g., "CorpusId:215416146")
+            - DOI:<doi> (e.g., "DOI:10.18653/v1/N18-3011")
+            - ARXIV:<id> (e.g., "ARXIV:2106.15928")
+            - MAG:<id> (e.g., "MAG:112218234")
+            - ACL:<id> (e.g., "ACL:W12-3903")
+            - PMID:<id> (e.g., "PMID:19872477")
+            - PMCID:<id> (e.g., "PMCID:2323736")
+            - URL:<url> (e.g., "URL:https://arxiv.org/abs/2106.15928v1")
         max_results: Maximum number of referenced papers to return (default: 20)
 
     Returns:
@@ -383,16 +602,32 @@ async def get_semantic_references(paper_id: str, max_results: int = 20) -> List[
     Example:
         await get_semantic_references("5bbfdf2e62f0508c65ba6de9c72fe2066fd98138", 10)
     """
-    papers = semantic_searcher.get_references(paper_id, max_results)
-    return [paper.to_dict() for paper in papers] if papers else []
+    try:
+        papers = semantic_searcher.get_references(paper_id, max_results)
+        return [paper.to_dict() for paper in papers] if papers else []
+    except Exception as e:
+        logger.error(f"get_semantic_references failed: {e}")
+        return [{"error": f"Semantic Scholar references lookup failed for {paper_id}: {type(e).__name__}: {e}"}]
 
 
 @mcp.tool()
 async def get_semantic_related(paper_id: str, max_results: int = 20) -> List[Dict]:
     """Get papers related to this Semantic Scholar paper based on citations and concepts.
 
+    Semantic Scholar 429 rate limits are common because unauthenticated requests
+    share a rate limit across all users. If that happens, trying again may work.
+
     Args:
-        paper_id: Semantic Scholar paper ID (e.g., "649def34f8be52c8b66281af98ae884c09aef38b")
+        paper_id: Semantic Scholar paper identifier in one of the following formats:
+            - Semantic Scholar ID (e.g., "649def34f8be52c8b66281af98ae884c09aef38b")
+            - CorpusId:<id> (e.g., "CorpusId:215416146")
+            - DOI:<doi> (e.g., "DOI:10.18653/v1/N18-3011")
+            - ARXIV:<id> (e.g., "ARXIV:2106.15928")
+            - MAG:<id> (e.g., "MAG:112218234")
+            - ACL:<id> (e.g., "ACL:W12-3903")
+            - PMID:<id> (e.g., "PMID:19872477")
+            - PMCID:<id> (e.g., "PMCID:2323736")
+            - URL:<url> (e.g., "URL:https://arxiv.org/abs/2106.15928v1")
         max_results: Maximum number of related papers to return (default: 20)
 
     Returns:
@@ -401,8 +636,12 @@ async def get_semantic_related(paper_id: str, max_results: int = 20) -> List[Dic
     Example:
         await get_semantic_related("5bbfdf2e62f0508c65ba6de9c72fe2066fd98138", 10)
     """
-    papers = semantic_searcher.get_related_papers(paper_id, max_results)
-    return [paper.to_dict() for paper in papers] if papers else []
+    try:
+        papers = semantic_searcher.get_related_papers(paper_id, max_results)
+        return [paper.to_dict() for paper in papers] if papers else []
+    except Exception as e:
+        logger.error(f"get_semantic_related failed: {e}")
+        return [{"error": f"Semantic Scholar related papers lookup failed for {paper_id}: {type(e).__name__}: {e}"}]
 
 
 @mcp.tool()
@@ -411,6 +650,9 @@ async def search_semantic_by_author(
     max_results: int = 20
 ) -> List[Dict]:
     """Search for papers by a specific author in Semantic Scholar.
+
+    Semantic Scholar 429 rate limits are common because unauthenticated requests
+    share a rate limit across all users. If that happens, trying again may work.
 
     Args:
         author_name: Name of the author (e.g., 'Geoffrey Hinton')
@@ -422,8 +664,12 @@ async def search_semantic_by_author(
     Example:
         await search_semantic_by_author("Yann LeCun", 15)
     """
-    papers = semantic_searcher.search_by_author(author_name, max_results)
-    return [paper.to_dict() for paper in papers] if papers else []
+    try:
+        papers = semantic_searcher.search_by_author(author_name, max_results)
+        return [paper.to_dict() for paper in papers] if papers else []
+    except Exception as e:
+        logger.error(f"search_semantic_by_author failed: {e}")
+        return [{"error": f"Semantic Scholar author search failed for '{author_name}': {type(e).__name__}: {e}"}]
 
 
 @mcp.tool()
@@ -455,8 +701,12 @@ async def search_crossref(query: str, max_results: int = 10, **kwargs) -> List[D
         # Search sorted by publication date
         search_crossref("neural networks", 15, sort="published", order="desc")
     """
-    papers = sync_search(crossref_searcher, query, max_results, **kwargs)
-    return papers if papers else []
+    try:
+        papers = sync_search(crossref_searcher, query, max_results, **kwargs)
+        return papers if papers else []
+    except Exception as e:
+        logger.error(f"search_crossref failed: {e}")
+        return [{"error": f"CrossRef search failed: {type(e).__name__}: {e}"}]
 
 
 @mcp.tool()
@@ -467,32 +717,41 @@ async def get_crossref_paper_by_doi(doi: str) -> Dict:
         doi: Digital Object Identifier (e.g., '10.1038/nature12373').
     Returns:
         Paper metadata in dictionary format, or empty dict if not found.
-        
+
     Example:
         get_crossref_paper_by_doi("10.1038/nature12373")
     """
-    paper = crossref_searcher.get_paper_by_doi(doi)
-    return paper.to_dict() if paper else {}
+    try:
+        paper = crossref_searcher.get_paper_by_doi(doi)
+        return paper.to_dict() if paper else {"error": f"Paper with DOI {doi} not found in CrossRef"}
+    except Exception as e:
+        logger.error(f"get_crossref_paper_by_doi failed: {e}")
+        return {"error": f"CrossRef DOI lookup failed for {doi}: {type(e).__name__}: {e}"}
 
 
 @mcp.tool()
-async def download_crossref(paper_id: str, save_path: str = "./downloads") -> str:
+async def download_crossref(paper_id: str, save_path: str = "./downloads", filename: Optional[str] = None) -> str:
     """Attempt to download PDF of a CrossRef paper.
 
     Args:
         paper_id: CrossRef DOI (e.g., '10.1038/nature12373').
         save_path: Directory to save the PDF (default: './downloads').
+        filename: Optional custom filename for the saved PDF (e.g., 'my_paper.pdf').
     Returns:
         str: Message indicating that direct PDF download is not supported.
-        
+
     Note:
         CrossRef is a citation database and doesn't provide direct PDF downloads.
         Use the DOI to access the paper through the publisher's website.
     """
     try:
-        return crossref_searcher.download_pdf(paper_id, save_path)
+        result = crossref_searcher.download_pdf(paper_id, save_path)
+        return _apply_filename(result, filename)
     except NotImplementedError as e:
         return str(e)
+    except Exception as e:
+        logger.error(f"download_crossref failed: {e}")
+        return f"Download failed for CrossRef paper {paper_id}: {type(e).__name__}: {e}"
 
 
 @mcp.tool()
@@ -509,7 +768,11 @@ async def read_crossref_paper(paper_id: str, save_path: str = "./downloads") -> 
         CrossRef is a citation database and doesn't provide direct paper content.
         Use the DOI to access the paper through the publisher's website.
     """
-    return crossref_searcher.read_paper(paper_id, save_path)
+    try:
+        return crossref_searcher.read_paper(paper_id, save_path)
+    except Exception as e:
+        logger.error(f"read_crossref_paper failed: {e}")
+        return f"Failed to read CrossRef paper {paper_id}: {type(e).__name__}: {e}"
 
 
 # ============================================================================
@@ -550,16 +813,20 @@ async def search_openalex(
         # Search with filters
         await search_openalex("climate change", 10, filter="has_fulltext:true")
     """
-    search_kwargs = {}
-    if year:
-        search_kwargs['year'] = year
-    if 'filter' in kwargs:
-        search_kwargs['filter'] = kwargs['filter']
-    if 'sort' in kwargs:
-        search_kwargs['sort'] = kwargs['sort']
+    try:
+        search_kwargs = {}
+        if year:
+            search_kwargs['year'] = year
+        if 'filter' in kwargs:
+            search_kwargs['filter'] = kwargs['filter']
+        if 'sort' in kwargs:
+            search_kwargs['sort'] = kwargs['sort']
 
-    papers = sync_search(openalex_searcher, query, max_results, **search_kwargs)
-    return papers if papers else []
+        papers = sync_search(openalex_searcher, query, max_results, **search_kwargs)
+        return papers if papers else []
+    except Exception as e:
+        logger.error(f"search_openalex failed: {e}")
+        return [{"error": f"OpenAlex search failed: {type(e).__name__}: {e}"}]
 
 
 @mcp.tool()
@@ -575,8 +842,12 @@ async def get_openalex_paper(paper_id: str) -> Dict:
     Example:
         await get_openalex_paper("W3108360596")
     """
-    paper = openalex_searcher.get_paper_by_id(paper_id)
-    return paper.to_dict() if paper else {}
+    try:
+        paper = openalex_searcher.get_paper_by_id(paper_id)
+        return paper.to_dict() if paper else {"error": f"OpenAlex paper {paper_id} not found"}
+    except Exception as e:
+        logger.error(f"get_openalex_paper failed: {e}")
+        return {"error": f"OpenAlex paper lookup failed for {paper_id}: {type(e).__name__}: {e}"}
 
 
 @mcp.tool()
@@ -592,8 +863,12 @@ async def get_openalex_paper_by_doi(doi: str) -> Dict:
     Example:
         await get_openalex_paper_by_doi("10.1038/nature12373")
     """
-    paper = openalex_searcher.get_paper_by_doi(doi)
-    return paper.to_dict() if paper else {}
+    try:
+        paper = openalex_searcher.get_paper_by_doi(doi)
+        return paper.to_dict() if paper else {"error": f"Paper with DOI {doi} not found in OpenAlex"}
+    except Exception as e:
+        logger.error(f"get_openalex_paper_by_doi failed: {e}")
+        return {"error": f"OpenAlex DOI lookup failed for {doi}: {type(e).__name__}: {e}"}
 
 
 @mcp.tool()
@@ -610,8 +885,12 @@ async def get_openalex_citations(paper_id: str, max_results: int = 20) -> List[D
     Example:
         await get_openalex_citations("W3108360596", 10)
     """
-    papers = openalex_searcher.get_citations(paper_id, max_results)
-    return [paper.to_dict() for paper in papers] if papers else []
+    try:
+        papers = openalex_searcher.get_citations(paper_id, max_results)
+        return [paper.to_dict() for paper in papers] if papers else []
+    except Exception as e:
+        logger.error(f"get_openalex_citations failed: {e}")
+        return [{"error": f"OpenAlex citations lookup failed for {paper_id}: {type(e).__name__}: {e}"}]
 
 
 @mcp.tool()
@@ -628,8 +907,12 @@ async def get_openalex_references(paper_id: str, max_results: int = 20) -> List[
     Example:
         await get_openalex_references("W3108360596", 10)
     """
-    papers = openalex_searcher.get_references(paper_id, max_results)
-    return [paper.to_dict() for paper in papers] if papers else []
+    try:
+        papers = openalex_searcher.get_references(paper_id, max_results)
+        return [paper.to_dict() for paper in papers] if papers else []
+    except Exception as e:
+        logger.error(f"get_openalex_references failed: {e}")
+        return [{"error": f"OpenAlex references lookup failed for {paper_id}: {type(e).__name__}: {e}"}]
 
 
 @mcp.tool()
@@ -651,8 +934,12 @@ async def search_openalex_by_author(
     Example:
         await search_openalex_by_author("Yann LeCun", 15)
     """
-    papers = openalex_searcher.search_by_author(author_name, max_results, **kwargs)
-    return [paper.to_dict() for paper in papers] if papers else []
+    try:
+        papers = openalex_searcher.search_by_author(author_name, max_results, **kwargs)
+        return [paper.to_dict() for paper in papers] if papers else []
+    except Exception as e:
+        logger.error(f"search_openalex_by_author failed: {e}")
+        return [{"error": f"OpenAlex author search failed for '{author_name}': {type(e).__name__}: {e}"}]
 
 
 @mcp.tool()
@@ -669,17 +956,27 @@ async def get_openalex_related(paper_id: str, max_results: int = 20) -> List[Dic
     Example:
         await get_openalex_related("W3108360596", 10)
     """
-    papers = openalex_searcher.get_related_papers(paper_id, max_results)
-    return [paper.to_dict() for paper in papers] if papers else []
+    try:
+        papers = openalex_searcher.get_related_papers(paper_id, max_results)
+        return [paper.to_dict() for paper in papers] if papers else []
+    except Exception as e:
+        logger.error(f"get_openalex_related failed: {e}")
+        return [{"error": f"OpenAlex related papers lookup failed for {paper_id}: {type(e).__name__}: {e}"}]
 
 
 @mcp.tool()
-async def download_openalex(paper_id: str, save_path: str = "./downloads") -> str:
+async def download_openalex(
+    paper_id: str,
+    save_path: str = "./downloads",
+    filename: Optional[str] = None,
+    ctx: Context = None,
+) -> str:
     """Download PDF of an OpenAlex paper.
 
     Args:
         paper_id: OpenAlex paper ID (e.g., 'W3124567890')
         save_path: Directory to save the PDF (default: './downloads')
+        filename: Optional custom filename for the saved PDF (e.g., 'my_paper.pdf').
 
     Returns:
         Path to downloaded PDF or error message.
@@ -688,7 +985,13 @@ async def download_openalex(paper_id: str, save_path: str = "./downloads") -> st
         OpenAlex doesn't directly host PDFs. This attempts to find and download
         from available open access sources.
     """
-    return openalex_searcher.download_pdf(paper_id, save_path)
+    try:
+        save_path = await _resolve_save_path(save_path, ctx)
+        result = openalex_searcher.download_pdf(paper_id, save_path)
+        return _apply_filename(result, filename)
+    except Exception as e:
+        logger.error(f"download_openalex failed: {e}")
+        return f"Download failed for OpenAlex paper {paper_id}: {type(e).__name__}: {e}"
 
 
 @mcp.tool()
@@ -705,8 +1008,8 @@ async def read_openalex_paper(paper_id: str, save_path: str = "./downloads") -> 
     try:
         return openalex_searcher.read_paper(paper_id, save_path)
     except Exception as e:
-        print(f"Error reading paper {paper_id}: {e}")
-        return ""
+        logger.error(f"read_openalex_paper failed: {e}")
+        return f"Failed to read OpenAlex paper {paper_id}: {type(e).__name__}: {e}"
 
 
 # ============================================================================
@@ -716,7 +1019,9 @@ async def read_openalex_paper(paper_id: str, save_path: str = "./downloads") -> 
 @mcp.tool()
 async def download_scihub(
     identifier: str,
-    save_path: str = "./downloads"
+    save_path: str = "./downloads",
+    filename: Optional[str] = None,
+    ctx: Context = None,
 ) -> str:
     """Download PDF from Sci-Hub using DOI, PMID, or URL.
 
@@ -726,6 +1031,7 @@ async def download_scihub(
     Args:
         identifier: DOI (e.g., '10.1038/nature12373'), PMID, or paper URL
         save_path: Directory to save the PDF (default: './downloads')
+        filename: Optional custom filename for the saved PDF (e.g., 'my_paper.pdf').
 
     Returns:
         Path to downloaded PDF or error message.
@@ -739,16 +1045,33 @@ async def download_scihub(
 
         # Download by URL
         await download_scihub("https://arxiv.org/abs/2106.15928")
-
-    Note:
-        Sci-Hub operates in a legal gray area. Only use for legitimate research
-        purposes and ensure compliance with your local laws and institution policies.
     """
-    result = scihub_fetcher.download_pdf(identifier)
-    if result:
-        return result
-    else:
-        return f"Failed to download PDF from Sci-Hub for identifier: {identifier}"
+    try:
+        save_path = await _resolve_save_path(save_path, ctx)
+        result = scihub_fetcher.download_pdf(identifier, save_path)
+        if not result or result.startswith("Error"):
+            return result or f"Failed to download PDF from Sci-Hub for identifier: {identifier}"
+        return _apply_filename(result, filename)
+    except Exception as e:
+        logger.error(f"download_scihub failed: {e}")
+        return f"Sci-Hub download failed for {identifier}: {type(e).__name__}: {e}"
+
+
+@mcp.tool()
+async def read_scihub_paper(identifier: str, save_path: str = "./downloads") -> str:
+    """Download and extract text from a paper via Sci-Hub.
+
+    Args:
+        identifier: DOI, PMID, article URL, or direct PDF URL.
+        save_path: Directory where the PDF is/will be saved (default: './downloads').
+    Returns:
+        Extracted paper text, or an error message if unavailable.
+    """
+    try:
+        return scihub_fetcher.read_paper(identifier, save_path)
+    except Exception as e:
+        logger.error(f"read_scihub_paper failed: {e}")
+        return f"Failed to read paper from Sci-Hub for {identifier}: {type(e).__name__}: {e}"
 
 
 # ============================================================================
@@ -785,7 +1108,11 @@ async def deduplicate_papers(
         all_papers = arxiv_results + semantic_results
         unique_papers = await deduplicate_papers(all_papers, keep="best")
     """
-    return deduplicate_paper_dicts(papers, keep)
+    try:
+        return deduplicate_paper_dicts(papers, keep)
+    except Exception as e:
+        logger.error(f"deduplicate_papers failed: {e}")
+        return [{"error": f"Deduplication failed: {type(e).__name__}: {e}"}]
 
 
 @mcp.tool()
@@ -809,17 +1136,22 @@ async def merge_papers(papers: List[Dict]) -> List[Dict]:
         all_papers = arxiv_results + openalex_results
         merged_papers = await merge_papers(all_papers)
     """
-    # Convert dicts to Paper objects
-    paper_objs = []
-    for d in papers:
-        try:
-            paper_objs.append(dict_to_paper(d))
-        except Exception:
-            continue
+    try:
+        # Convert dicts to Paper objects
+        paper_objs = []
+        for d in papers:
+            try:
+                paper_objs.append(dict_to_paper(d))
+            except Exception as e:
+                logger.warning(f"Skipping malformed paper dict during merge: {e}")
+                continue
 
-    # Merge and convert back
-    merged = merge_duplicate_papers(paper_objs)
-    return [p.to_dict() for p in merged]
+        # Merge and convert back
+        merged = merge_duplicate_papers(paper_objs)
+        return [p.to_dict() for p in merged]
+    except Exception as e:
+        logger.error(f"merge_papers failed: {e}")
+        return [{"error": f"Paper merge failed: {type(e).__name__}: {e}"}]
 
 
 @mcp.tool()
@@ -850,7 +1182,8 @@ async def find_duplicate_groups(papers: List[Dict]) -> Dict[str, List[Dict]]:
     for d in papers:
         try:
             paper_objs.append(dict_to_paper(d))
-        except Exception:
+        except Exception as e:
+            logger.warning(f"Skipping malformed paper dict during duplicate detection: {e}")
             continue
 
     # Find duplicates
@@ -905,8 +1238,12 @@ async def search_pmc(
         # Search with year filter
         await search_pmc("immunotherapy", 15, year="2020-2023")
     """
-    papers = sync_search(pmc_searcher, query, max_results, year=year)
-    return papers if papers else []
+    try:
+        papers = sync_search(pmc_searcher, query, max_results, year=year)
+        return papers if papers else []
+    except Exception as e:
+        logger.error(f"search_pmc failed: {e}")
+        return [{"error": f"PMC search failed: {type(e).__name__}: {e}"}]
 
 
 @mcp.tool()
@@ -922,17 +1259,27 @@ async def get_pmc_paper(paper_id: str) -> Dict:
     Example:
         await get_pmc_paper("PMC1234567")
     """
-    paper = pmc_searcher.get_paper_by_pmcid(paper_id)
-    return paper.to_dict() if paper else {}
+    try:
+        paper = pmc_searcher.get_paper_by_pmcid(paper_id)
+        return paper.to_dict() if paper else {"error": f"PMC paper {paper_id} not found"}
+    except Exception as e:
+        logger.error(f"get_pmc_paper failed: {e}")
+        return {"error": f"PMC paper lookup failed for {paper_id}: {type(e).__name__}: {e}"}
 
 
 @mcp.tool()
-async def download_pmc(paper_id: str, save_path: str = "./downloads") -> str:
+async def download_pmc(
+    paper_id: str,
+    save_path: str = "./downloads",
+    filename: Optional[str] = None,
+    ctx: Context = None,
+) -> str:
     """Download PDF of a PubMed Central paper.
 
     Args:
         paper_id: PMC ID (e.g., 'PMC1234567' or '1234567')
         save_path: Directory to save the PDF (default: './downloads')
+        filename: Optional custom filename for the saved PDF (e.g., 'my_paper.pdf').
 
     Returns:
         Path to downloaded PDF or error message.
@@ -940,7 +1287,13 @@ async def download_pmc(paper_id: str, save_path: str = "./downloads") -> str:
     Example:
         await download_pmc("PMC1234567")
     """
-    return pmc_searcher.download_pdf(paper_id, save_path)
+    try:
+        save_path = await _resolve_save_path(save_path, ctx)
+        result = pmc_searcher.download_pdf(paper_id, save_path)
+        return _apply_filename(result, filename)
+    except Exception as e:
+        logger.error(f"download_pmc failed: {e}")
+        return f"Download failed for PMC paper {paper_id}: {type(e).__name__}: {e}"
 
 
 @mcp.tool()
@@ -960,8 +1313,8 @@ async def read_pmc_paper(paper_id: str, save_path: str = "./downloads") -> str:
     try:
         return pmc_searcher.read_paper(paper_id, save_path)
     except Exception as e:
-        print(f"Error reading paper {paper_id}: {e}")
-        return ""
+        logger.error(f"read_pmc_paper failed: {e}")
+        return f"Failed to read PMC paper {paper_id}: {type(e).__name__}: {e}"
 
 
 # ============================================================================
@@ -1003,16 +1356,20 @@ async def search_hal(
         # Search in French
         await search_hal("apprentissage automatique", 10, language="fr")
     """
-    search_kwargs = {"year": year} if year else {}
-    if doc_type:
-        search_kwargs["doc_type"] = doc_type
-    if collection:
-        search_kwargs["collection"] = collection
-    if language:
-        search_kwargs["language"] = language
+    try:
+        search_kwargs = {"year": year} if year else {}
+        if doc_type:
+            search_kwargs["doc_type"] = doc_type
+        if collection:
+            search_kwargs["collection"] = collection
+        if language:
+            search_kwargs["language"] = language
 
-    papers = hal_searcher.search(query, max_results, **search_kwargs)
-    return [paper.to_dict() for paper in papers] if papers else []
+        papers = hal_searcher.search(query, max_results, **search_kwargs)
+        return [paper.to_dict() for paper in papers] if papers else []
+    except Exception as e:
+        logger.error(f"search_hal failed: {e}")
+        return [{"error": f"HAL search failed: {type(e).__name__}: {e}"}]
 
 
 @mcp.tool()
@@ -1034,8 +1391,12 @@ async def search_hal_by_author(
     Example:
         await search_hal_by_author("Jean-Pierre Nadal", 15)
     """
-    papers = hal_searcher.search_by_author_name(author_name, max_results, year)
-    return [paper.to_dict() for paper in papers] if papers else []
+    try:
+        papers = hal_searcher.search_by_author_name(author_name, max_results, year)
+        return [paper.to_dict() for paper in papers] if papers else []
+    except Exception as e:
+        logger.error(f"search_hal_by_author failed: {e}")
+        return [{"error": f"HAL author search failed for '{author_name}': {type(e).__name__}: {e}"}]
 
 
 @mcp.tool()
@@ -1051,17 +1412,27 @@ async def get_hal_document(doc_id: str) -> Dict:
     Example:
         await get_hal_document("hal-01234567")
     """
-    paper = hal_searcher.get_document_by_id(doc_id)
-    return paper.to_dict() if paper else {}
+    try:
+        paper = hal_searcher.get_document_by_id(doc_id)
+        return paper.to_dict() if paper else {"error": f"HAL document {doc_id} not found"}
+    except Exception as e:
+        logger.error(f"get_hal_document failed: {e}")
+        return {"error": f"HAL document lookup failed for {doc_id}: {type(e).__name__}: {e}"}
 
 
 @mcp.tool()
-async def download_hal(doc_id: str, save_path: str = "./downloads") -> str:
+async def download_hal(
+    doc_id: str,
+    save_path: str = "./downloads",
+    filename: Optional[str] = None,
+    ctx: Context = None,
+) -> str:
     """Download PDF of a HAL document.
 
     Args:
         doc_id: HAL document ID (e.g., 'hal-01234567')
         save_path: Directory to save the PDF (default: './downloads')
+        filename: Optional custom filename for the saved PDF (e.g., 'my_paper.pdf').
 
     Returns:
         Path to downloaded PDF or error message.
@@ -1069,7 +1440,13 @@ async def download_hal(doc_id: str, save_path: str = "./downloads") -> str:
     Example:
         await download_hal("hal-01234567")
     """
-    return hal_searcher.download_file(doc_id, save_path)
+    try:
+        save_path = await _resolve_save_path(save_path, ctx)
+        result = hal_searcher.download_file(doc_id, save_path)
+        return _apply_filename(result, filename)
+    except Exception as e:
+        logger.error(f"download_hal failed: {e}")
+        return f"Download failed for HAL document {doc_id}: {type(e).__name__}: {e}"
 
 
 @mcp.tool()
@@ -1086,7 +1463,11 @@ async def read_hal_paper(doc_id: str, save_path: str = "./downloads") -> str:
     Example:
         content = await read_hal_paper("hal-01234567")
     """
-    return hal_searcher.read_paper(doc_id, save_path)
+    try:
+        return hal_searcher.read_paper(doc_id, save_path)
+    except Exception as e:
+        logger.error(f"read_hal_paper failed: {e}")
+        return f"Failed to read HAL document {doc_id}: {type(e).__name__}: {e}"
 
 
 # ============================================================================
@@ -1124,12 +1505,16 @@ async def search_ssrn(
         # Search with year filter
         await search_ssrn("climate finance", 10, year="2020-2023")
     """
-    search_kwargs = {"year": year} if year else {}
-    if topic:
-        search_kwargs["topic"] = topic
+    try:
+        search_kwargs = {"year": year} if year else {}
+        if topic:
+            search_kwargs["topic"] = topic
 
-    papers = ssrn_searcher.search(query, max_results, **search_kwargs)
-    return [paper.to_dict() for paper in papers] if papers else []
+        papers = ssrn_searcher.search(query, max_results, **search_kwargs)
+        return [paper.to_dict() for paper in papers] if papers else []
+    except Exception as e:
+        logger.error(f"search_ssrn failed: {e}")
+        return [{"error": f"SSRN search failed: {type(e).__name__}: {e}"}]
 
 
 @mcp.tool()
@@ -1151,8 +1536,12 @@ async def search_ssrn_by_author(
     Example:
         await search_ssrn_by_author("Andrei Shleifer", 15)
     """
-    papers = ssrn_searcher.search_by_author(author_name, max_results, year)
-    return [paper.to_dict() for paper in papers] if papers else []
+    try:
+        papers = ssrn_searcher.search_by_author(author_name, max_results, year)
+        return [paper.to_dict() for paper in papers] if papers else []
+    except Exception as e:
+        logger.error(f"search_ssrn_by_author failed: {e}")
+        return [{"error": f"SSRN author search failed for '{author_name}': {type(e).__name__}: {e}"}]
 
 
 @mcp.tool()
@@ -1168,17 +1557,27 @@ async def get_ssrn_paper(paper_id: str) -> Dict:
     Example:
         await get_ssrn_paper("1234567")
     """
-    paper = ssrn_searcher.get_paper_by_id(paper_id)
-    return paper.to_dict() if paper else {}
+    try:
+        paper = ssrn_searcher.get_paper_by_id(paper_id)
+        return paper.to_dict() if paper else {}
+    except Exception as e:
+        logger.error(f"get_ssrn_paper failed: {e}")
+        return {"error": f"SSRN paper lookup failed for {paper_id}: {type(e).__name__}: {e}"}
 
 
 @mcp.tool()
-async def download_ssrn(paper_id: str, save_path: str = "./downloads") -> str:
+async def download_ssrn(
+    paper_id: str,
+    save_path: str = "./downloads",
+    filename: Optional[str] = None,
+    ctx: Context = None,
+) -> str:
     """Download PDF of an SSRN paper.
 
     Args:
         paper_id: SSRN paper ID (e.g., '1234567')
         save_path: Directory to save the PDF (default: './downloads')
+        filename: Optional custom filename for the saved PDF (e.g., 'my_paper.pdf').
 
     Returns:
         Path to downloaded PDF or error message.
@@ -1190,7 +1589,13 @@ async def download_ssrn(paper_id: str, save_path: str = "./downloads") -> str:
     Example:
         await download_ssrn("1234567")
     """
-    return ssrn_searcher.download_pdf(paper_id, save_path)
+    try:
+        save_path = await _resolve_save_path(save_path, ctx)
+        result = ssrn_searcher.download_pdf(paper_id, save_path)
+        return _apply_filename(result, filename)
+    except Exception as e:
+        logger.error(f"download_ssrn failed: {e}")
+        return f"Download failed for SSRN paper {paper_id}: {type(e).__name__}: {e}"
 
 
 @mcp.tool()
@@ -1207,7 +1612,11 @@ async def read_ssrn_paper(paper_id: str, save_path: str = "./downloads") -> str:
     Example:
         content = await read_ssrn_paper("1234567")
     """
-    return ssrn_searcher.read_paper(paper_id, save_path)
+    try:
+        return ssrn_searcher.read_paper(paper_id, save_path)
+    except Exception as e:
+        logger.error(f"read_ssrn_paper failed: {e}")
+        return f"Failed to read SSRN paper {paper_id}: {type(e).__name__}: {e}"
 
 
 # ============================================================================
@@ -1247,14 +1656,18 @@ async def search_dblp(
         # Search specific venue
         await search_dblp("attention", 10, venue="NeurIPS")
     """
-    search_kwargs = {"year": year} if year else {}
-    if venue_type:
-        search_kwargs["venue_type"] = venue_type
-    if venue:
-        search_kwargs["venue"] = venue
+    try:
+        search_kwargs = {"year": year} if year else {}
+        if venue_type:
+            search_kwargs["venue_type"] = venue_type
+        if venue:
+            search_kwargs["venue"] = venue
 
-    papers = dblp_searcher.search(query, max_results, **search_kwargs)
-    return [paper.to_dict() for paper in papers] if papers else []
+        papers = dblp_searcher.search(query, max_results, **search_kwargs)
+        return [paper.to_dict() for paper in papers] if papers else []
+    except Exception as e:
+        logger.error(f"search_dblp failed: {e}")
+        return [{"error": f"DBLP search failed: {type(e).__name__}: {e}"}]
 
 
 @mcp.tool()
@@ -1276,8 +1689,12 @@ async def search_dblp_by_author(
     Example:
         await search_dblp_by_author("Yann LeCun", 15)
     """
-    papers = dblp_searcher.search_by_author(author_name, max_results, year)
-    return [paper.to_dict() for paper in papers] if papers else []
+    try:
+        papers = dblp_searcher.search_by_author(author_name, max_results, year)
+        return [paper.to_dict() for paper in papers] if papers else []
+    except Exception as e:
+        logger.error(f"search_dblp_by_author failed: {e}")
+        return [{"error": f"DBLP author search failed for '{author_name}': {type(e).__name__}: {e}"}]
 
 
 @mcp.tool()
@@ -1294,8 +1711,12 @@ async def search_dblp_venue(venue_name: str, max_results: int = 50) -> List[Dict
     Example:
         await search_dblp_venue("NeurIPS", 100)
     """
-    papers = dblp_searcher.search_venue(venue_name, max_results)
-    return [paper.to_dict() for paper in papers] if papers else []
+    try:
+        papers = dblp_searcher.search_venue(venue_name, max_results)
+        return [paper.to_dict() for paper in papers] if papers else []
+    except Exception as e:
+        logger.error(f"search_dblp_venue failed: {e}")
+        return [{"error": f"DBLP venue search failed for '{venue_name}': {type(e).__name__}: {e}"}]
 
 
 @mcp.tool()
@@ -1311,8 +1732,12 @@ async def get_dblp_paper(key: str) -> Dict:
     Example:
         await get_dblp_paper("conf/nips/VaswaniSPU17")
     """
-    paper = dblp_searcher.get_paper_by_key(key)
-    return paper.to_dict() if paper else {}
+    try:
+        paper = dblp_searcher.get_paper_by_key(key)
+        return paper.to_dict() if paper else {}
+    except Exception as e:
+        logger.error(f"get_dblp_paper failed: {e}")
+        return {"error": f"DBLP paper lookup failed for {key}: {type(e).__name__}: {e}"}
 
 
 @mcp.tool()
@@ -1339,6 +1764,129 @@ async def get_dblp_top_journals() -> List[Dict]:
         journals = await get_dblp_top_journals()
     """
     return dblp_searcher.get_top_journals()
+
+
+@mcp.tool()
+async def doi_cross_download(
+    doi: str,
+    save_path: str = "./downloads",
+    filename: Optional[str] = None,
+    ctx: Context = None,
+) -> Dict:
+    """Download a PDF for a DOI by trying every source that can serve it.
+
+    Args:
+        doi: DOI of the paper (e.g., '10.1101/2021.03.01.433208').
+        save_path: Directory to save the PDF (default: './downloads').
+        filename: Optional custom filename for the saved PDF.
+
+    Returns:
+        Dict with 'path', 'source', 'attempts' on success, or
+        'error' + 'attempts' on failure.
+    """
+    try:
+        save_path = await _resolve_save_path(save_path, ctx)
+        result = cross_source.doi_download(
+            doi, save_path,
+            biorxiv_searcher, medrxiv_searcher, semantic_searcher,
+            openalex_searcher, scihub_fetcher,
+        )
+        if "path" in result:
+            result["path"] = _apply_filename(result["path"], filename)
+        return result
+    except Exception as e:
+        logger.error(f"doi_cross_download failed: {e}")
+        return {"error": f"doi_cross_download failed for {doi}: {type(e).__name__}: {e}", "attempts": []}
+
+
+@mcp.tool()
+async def doi_cross_read(
+    doi: str,
+    save_path: str = "./downloads",
+    ctx: Context = None,
+) -> Dict:
+    """Read extracted text for a DOI by trying every source that can serve it. The first successful PDF source is downloaded and its text extracted.
+
+    Args:
+        doi: DOI of the paper.
+        save_path: Directory where the PDF is saved (default: './downloads').
+
+    Returns:
+        Dict with 'text', 'path', 'source', 'attempts' on success, or
+        'error' + 'attempts' on failure.
+    """
+    try:
+        save_path = await _resolve_save_path(save_path, ctx)
+        return cross_source.doi_read(
+            doi, save_path,
+            biorxiv_searcher, medrxiv_searcher, semantic_searcher,
+            openalex_searcher, scihub_fetcher,
+        )
+    except Exception as e:
+        logger.error(f"doi_cross_read failed: {e}")
+        return {"error": f"doi_cross_read failed for {doi}: {type(e).__name__}: {e}", "attempts": []}
+
+
+@mcp.tool()
+async def pmid_cross_download(
+    pmid: str,
+    save_path: str = "./downloads",
+    filename: Optional[str] = None,
+    ctx: Context = None,
+) -> Dict:
+    """Download a PDF for a PMID by trying every source that can serve it.
+
+    Args:
+        pmid: PubMed ID (numeric, e.g., '19872477').
+        save_path: Directory to save the PDF (default: './downloads').
+        filename: Optional custom filename for the saved PDF.
+
+    Returns:
+        Dict with 'path', 'source', 'attempts' on success, or
+        'error' + 'attempts' on failure.
+    """
+    try:
+        save_path = await _resolve_save_path(save_path, ctx)
+        result = cross_source.pmid_download(
+            pmid, save_path,
+            semantic_searcher, pmc_searcher, scihub_fetcher,
+        )
+        if "path" in result:
+            result["path"] = _apply_filename(result["path"], filename)
+        return result
+    except Exception as e:
+        logger.error(f"pmid_cross_download failed: {e}")
+        return {"error": f"pmid_cross_download failed for {pmid}: {type(e).__name__}: {e}", "attempts": []}
+
+
+@mcp.tool()
+async def pmid_cross_read(
+    pmid: str,
+    save_path: str = "./downloads",
+    ctx: Context = None,
+) -> Dict:
+    """Read extracted text for a PMID by trying every source that can serve it.
+
+    Sources are tried in the same order as pmid_cross_download; the first
+    successful PDF is downloaded and its text extracted.
+
+    Args:
+        pmid: PubMed ID (numeric).
+        save_path: Directory where the PDF is saved (default: './downloads').
+
+    Returns:
+        Dict with 'text', 'path', 'source', 'attempts' on success, or
+        'error' + 'attempts' on failure.
+    """
+    try:
+        save_path = await _resolve_save_path(save_path, ctx)
+        return cross_source.pmid_read(
+            pmid, save_path,
+            semantic_searcher, pmc_searcher, scihub_fetcher,
+        )
+    except Exception as e:
+        logger.error(f"pmid_cross_read failed: {e}")
+        return {"error": f"pmid_cross_read failed for {pmid}: {type(e).__name__}: {e}", "attempts": []}
 
 
 def main():

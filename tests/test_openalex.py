@@ -1,16 +1,11 @@
 """Tests for OpenAlex searcher."""
 import unittest
-import requests
 from paper_search_mcp.academic_platforms.openalex import OpenAlexSearcher
+from tests.network import check_url_accessible
 
 
 def check_openalex_accessible():
-    """Check if OpenAlex API is accessible."""
-    try:
-        response = requests.get("https://api.openalex.org/works?per_page=1", timeout=5)
-        return response.status_code == 200
-    except:
-        return False
+    return check_url_accessible("https://api.openalex.org/works?per_page=1")
 
 
 class TestOpenAlexSearcher(unittest.TestCase):
