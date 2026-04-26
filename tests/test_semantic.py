@@ -2,6 +2,7 @@ import unittest
 import os
 from unittest.mock import Mock, call, patch
 from paper_search_mcp.academic_platforms.semantic import SemanticSearcher, SemanticRateLimitError
+from paper_search_mcp.http_status import SEMANTIC_SCHOLAR_429_NOTE
 from tests.network import check_url_accessible
 
 
@@ -60,11 +61,12 @@ class TestSemanticSearcher(unittest.TestCase):
         with patch.object(SemanticSearcher, "get_api_key", return_value=None):
             with patch.object(self.searcher.session, "get", return_value=response) as mock_get:
                 with patch("paper_search_mcp.academic_platforms.semantic.time.sleep") as mock_sleep:
-                    with self.assertRaises(SemanticRateLimitError):
+                    with self.assertRaises(SemanticRateLimitError) as cm:
                         self.searcher.request_api("paper/search", {"query": "secret sharing"})
 
         self.assertEqual(mock_get.call_count, 3)
         self.assertEqual(mock_sleep.call_args_list, [call(1), call(2)])
+        self.assertIn(SEMANTIC_SCHOLAR_429_NOTE, str(cm.exception))
 
     @unittest.skipUnless(check_semantic_accessible(), "Semantic Scholar not accessible")
     def test_download_pdf_functionality(self):

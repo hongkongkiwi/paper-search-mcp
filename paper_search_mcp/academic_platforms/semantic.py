@@ -10,7 +10,13 @@ from PyPDF2 import PdfReader
 import os
 import re
 
-from ..http_status import raise_for_status, raise_if_http_error, is_pdf_response, non_pdf_error
+from ..http_status import (
+    SEMANTIC_SCHOLAR_429_NOTE,
+    raise_for_status,
+    raise_if_http_error,
+    is_pdf_response,
+    non_pdf_error,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -167,7 +173,7 @@ class SemanticSearcher(PaperSource):
         retry_delay = 1
         rate_limit_message = (
             f"Semantic Scholar API rate limited the request (HTTP 429) after "
-            f"{max_retries} attempts. Wait a moment and retry, or set "
+            f"{max_retries} attempts. {SEMANTIC_SCHOLAR_429_NOTE} Set "
             f"SEMANTIC_SCHOLAR_API_KEY for higher limits."
         )
         

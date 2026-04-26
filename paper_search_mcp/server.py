@@ -452,6 +452,9 @@ async def read_iacr_paper(paper_id: str, save_path: str = "./downloads") -> str:
 async def search_semantic(query: str, year: Optional[str] = None, max_results: int = 10) -> List[Dict]:
     """Search academic papers from Semantic Scholar.
 
+    Semantic Scholar 429 rate limits are common because unauthenticated requests
+    share a rate limit across all users. If that happens, trying again may work.
+
     Args:
         query: Search query string (e.g., 'machine learning').
         year: Optional year filter (e.g., '2019', '2016-2020', '2010-', '-2015').
@@ -482,9 +485,13 @@ async def download_semantic(
 ) -> str:
     """Download PDF of a Semantic Scholar paper.
 
+    Semantic Scholar 429 rate limits are common because unauthenticated requests
+    share a rate limit across all users. If that happens, trying again may work.
+
     Args:
-        paper_id: Semantic Scholar paper ID, Paper identifier in one of the following formats:
+        paper_id: Semantic Scholar paper identifier in one of the following formats:
             - Semantic Scholar ID (e.g., "649def34f8be52c8b66281af98ae884c09aef38b")
+            - CorpusId:<id> (e.g., "CorpusId:215416146")
             - DOI:<doi> (e.g., "DOI:10.18653/v1/N18-3011")
             - ARXIV:<id> (e.g., "ARXIV:2106.15928")
             - MAG:<id> (e.g., "MAG:112218234")
@@ -510,9 +517,13 @@ async def download_semantic(
 async def read_semantic_paper(paper_id: str, save_path: str = "./downloads") -> str:
     """Read and extract text content from a Semantic Scholar paper.
 
+    Semantic Scholar 429 rate limits are common because unauthenticated requests
+    share a rate limit across all users. If that happens, trying again may work.
+
     Args:
-        paper_id: Semantic Scholar paper ID, Paper identifier in one of the following formats:
+        paper_id: Semantic Scholar paper identifier in one of the following formats:
             - Semantic Scholar ID (e.g., "649def34f8be52c8b66281af98ae884c09aef38b")
+            - CorpusId:<id> (e.g., "CorpusId:215416146")
             - DOI:<doi> (e.g., "DOI:10.18653/v1/N18-3011")
             - ARXIV:<id> (e.g., "ARXIV:2106.15928")
             - MAG:<id> (e.g., "MAG:112218234")
@@ -535,8 +546,20 @@ async def read_semantic_paper(paper_id: str, save_path: str = "./downloads") -> 
 async def get_semantic_citations(paper_id: str, max_results: int = 20) -> List[Dict]:
     """Get papers that cite this Semantic Scholar paper (forward citations).
 
+    Semantic Scholar 429 rate limits are common because unauthenticated requests
+    share a rate limit across all users. If that happens, trying again may work.
+
     Args:
-        paper_id: Semantic Scholar paper ID (e.g., "649def34f8be52c8b66281af98ae884c09aef38b")
+        paper_id: Semantic Scholar paper identifier in one of the following formats:
+            - Semantic Scholar ID (e.g., "649def34f8be52c8b66281af98ae884c09aef38b")
+            - CorpusId:<id> (e.g., "CorpusId:215416146")
+            - DOI:<doi> (e.g., "DOI:10.18653/v1/N18-3011")
+            - ARXIV:<id> (e.g., "ARXIV:2106.15928")
+            - MAG:<id> (e.g., "MAG:112218234")
+            - ACL:<id> (e.g., "ACL:W12-3903")
+            - PMID:<id> (e.g., "PMID:19872477")
+            - PMCID:<id> (e.g., "PMCID:2323736")
+            - URL:<url> (e.g., "URL:https://arxiv.org/abs/2106.15928v1")
         max_results: Maximum number of citing papers to return (default: 20)
 
     Returns:
@@ -557,8 +580,20 @@ async def get_semantic_citations(paper_id: str, max_results: int = 20) -> List[D
 async def get_semantic_references(paper_id: str, max_results: int = 20) -> List[Dict]:
     """Get papers referenced by this Semantic Scholar paper (backward citations).
 
+    Semantic Scholar 429 rate limits are common because unauthenticated requests
+    share a rate limit across all users. If that happens, trying again may work.
+
     Args:
-        paper_id: Semantic Scholar paper ID (e.g., "649def34f8be52c8b66281af98ae884c09aef38b")
+        paper_id: Semantic Scholar paper identifier in one of the following formats:
+            - Semantic Scholar ID (e.g., "649def34f8be52c8b66281af98ae884c09aef38b")
+            - CorpusId:<id> (e.g., "CorpusId:215416146")
+            - DOI:<doi> (e.g., "DOI:10.18653/v1/N18-3011")
+            - ARXIV:<id> (e.g., "ARXIV:2106.15928")
+            - MAG:<id> (e.g., "MAG:112218234")
+            - ACL:<id> (e.g., "ACL:W12-3903")
+            - PMID:<id> (e.g., "PMID:19872477")
+            - PMCID:<id> (e.g., "PMCID:2323736")
+            - URL:<url> (e.g., "URL:https://arxiv.org/abs/2106.15928v1")
         max_results: Maximum number of referenced papers to return (default: 20)
 
     Returns:
@@ -579,8 +614,20 @@ async def get_semantic_references(paper_id: str, max_results: int = 20) -> List[
 async def get_semantic_related(paper_id: str, max_results: int = 20) -> List[Dict]:
     """Get papers related to this Semantic Scholar paper based on citations and concepts.
 
+    Semantic Scholar 429 rate limits are common because unauthenticated requests
+    share a rate limit across all users. If that happens, trying again may work.
+
     Args:
-        paper_id: Semantic Scholar paper ID (e.g., "649def34f8be52c8b66281af98ae884c09aef38b")
+        paper_id: Semantic Scholar paper identifier in one of the following formats:
+            - Semantic Scholar ID (e.g., "649def34f8be52c8b66281af98ae884c09aef38b")
+            - CorpusId:<id> (e.g., "CorpusId:215416146")
+            - DOI:<doi> (e.g., "DOI:10.18653/v1/N18-3011")
+            - ARXIV:<id> (e.g., "ARXIV:2106.15928")
+            - MAG:<id> (e.g., "MAG:112218234")
+            - ACL:<id> (e.g., "ACL:W12-3903")
+            - PMID:<id> (e.g., "PMID:19872477")
+            - PMCID:<id> (e.g., "PMCID:2323736")
+            - URL:<url> (e.g., "URL:https://arxiv.org/abs/2106.15928v1")
         max_results: Maximum number of related papers to return (default: 20)
 
     Returns:
@@ -603,6 +650,9 @@ async def search_semantic_by_author(
     max_results: int = 20
 ) -> List[Dict]:
     """Search for papers by a specific author in Semantic Scholar.
+
+    Semantic Scholar 429 rate limits are common because unauthenticated requests
+    share a rate limit across all users. If that happens, trying again may work.
 
     Args:
         author_name: Name of the author (e.g., 'Geoffrey Hinton')

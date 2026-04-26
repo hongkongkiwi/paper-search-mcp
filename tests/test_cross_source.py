@@ -4,6 +4,8 @@ import unittest
 from unittest.mock import MagicMock, patch
 
 from paper_search_mcp import cross_source
+from paper_search_mcp.academic_platforms.semantic import SemanticRateLimitError
+from paper_search_mcp.http_status import SEMANTIC_SCHOLAR_429_NOTE
 
 
 def _write_pdf(tmpdir: str, name: str) -> str:
@@ -112,6 +114,22 @@ class DoiDownloadTests(unittest.TestCase):
             sources_tried = [a["source"] for a in result["attempts"]]
             self.assertEqual(sources_tried, ["scihub", "biorxiv", "medrxiv", "openalex", "semantic"])
             self.assertIn("medrxiv broke", result["attempts"][2]["error"])
+
+    def test_semantic_429_note_is_reported_in_attempts(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            biorxiv = StubSearcher("Error: 404")
+            medrxiv = StubSearcher("Error: 404")
+            semantic = StubSearcher(SemanticRateLimitError(SEMANTIC_SCHOLAR_429_NOTE))
+            openalex = MagicMock()
+            openalex.get_paper_by_doi.return_value = None
+            scihub = StubSearcher("Error: no mirror")
+
+            result = cross_source.doi_download(
+                "10.1101/2021.01.01.000000", tmp,
+                biorxiv, medrxiv, semantic, openalex, scihub,
+            )
+
+            self.assertIn(SEMANTIC_SCHOLAR_429_NOTE, result["attempts"][-1]["error"])
 
     def test_openalex_uses_doi_lookup_then_download(self):
         with tempfile.TemporaryDirectory() as tmp:

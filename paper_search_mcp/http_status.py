@@ -5,6 +5,12 @@ class HttpStatusError(RuntimeError):
     pass
 
 
+SEMANTIC_SCHOLAR_429_NOTE = (
+    "Semantic Scholar 429 rate limits are common because unauthenticated "
+    "requests share a rate limit across all users. Trying again may work."
+)
+
+
 def _message(context: str, response: requests.Response) -> str:
     reason = response.reason or ""
     status = f"HTTP {response.status_code}"
@@ -16,6 +22,8 @@ def _message(context: str, response: requests.Response) -> str:
     if response.status_code == 403:
         return f"{context}: access denied ({status})"
     if response.status_code == 429:
+        if context.startswith("Semantic Scholar"):
+            return f"{context}: rate limited ({status}). {SEMANTIC_SCHOLAR_429_NOTE}"
         return f"{context}: rate limited ({status})"
     if response.status_code >= 500:
         return f"{context}: remote service error ({status})"

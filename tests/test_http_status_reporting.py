@@ -10,7 +10,12 @@ import requests
 from paper_search_mcp import server
 from paper_search_mcp.academic_platforms.sci_hub import SciHubFetcher
 from paper_search_mcp.academic_platforms.semantic import SemanticSearcher
-from paper_search_mcp.http_status import is_pdf_response
+from paper_search_mcp.http_status import (
+    HttpStatusError,
+    SEMANTIC_SCHOLAR_429_NOTE,
+    is_pdf_response,
+    raise_for_status,
+)
 from paper_search_mcp.paper import Paper
 
 
@@ -71,6 +76,15 @@ class TestHttpStatusReporting(unittest.TestCase):
                 result = asyncio.run(server.search_semantic("secret sharing", max_results=1))
 
         self.assertIn("remote service error (HTTP 503 Service Unavailable)", result[0]["error"])
+
+    def test_semantic_429_reports_shared_unauthenticated_limit_note(self):
+        response = status_response(429, "Too Many Requests")
+
+        with self.assertRaises(HttpStatusError) as cm:
+            raise_for_status(response, "Semantic Scholar search failed")
+
+        self.assertIn("rate limited (HTTP 429 Too Many Requests)", str(cm.exception))
+        self.assertIn(SEMANTIC_SCHOLAR_429_NOTE, str(cm.exception))
 
     def test_search_biorxiv_reports_final_http_status_after_retries(self):
         response = http_error_response(502, "Bad Gateway")

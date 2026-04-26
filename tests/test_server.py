@@ -9,6 +9,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 from paper_search_mcp import server
 from paper_search_mcp.academic_platforms.semantic import SemanticRateLimitError
+from paper_search_mcp.http_status import SEMANTIC_SCHOLAR_429_NOTE
 from paper_search_mcp.paper import Paper
 
 class TestPaperSearchServer(unittest.TestCase):
@@ -133,7 +134,7 @@ class TestPaperSearchServer(unittest.TestCase):
     def test_search_semantic_returns_rate_limit_error(self):
         message = (
             "Semantic Scholar API rate limited the request (HTTP 429) after 3 "
-            "attempts. Wait a moment and retry, or set "
+            f"attempts. {SEMANTIC_SCHOLAR_429_NOTE} Set "
             "SEMANTIC_SCHOLAR_API_KEY for higher limits."
         )
 
