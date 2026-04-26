@@ -76,15 +76,12 @@ def doi_download(
     semantic,
     openalex,
     scihub,
-    allow_scihub: bool,
 ) -> Dict:
     """Download a PDF for a DOI from the first source that serves it."""
     doi = normalize_doi(doi)
     assert doi, "doi must not be empty"
 
-    sources: List[Source] = []
-    if allow_scihub:
-        sources.append(("scihub", lambda: scihub.download_pdf(doi, save_path)))
+    sources: List[Source] = [("scihub", lambda: scihub.download_pdf(doi, save_path))]
     if doi.startswith("10.1101/"):
         sources.append(("biorxiv", lambda: biorxiv.download_pdf(doi, save_path)))
         sources.append(("medrxiv", lambda: medrxiv.download_pdf(doi, save_path)))
@@ -103,15 +100,12 @@ def pmid_download(
     semantic,
     pmc,
     scihub,
-    allow_scihub: bool,
 ) -> Dict:
     """Download a PDF for a PMID from the first source that serves it."""
     pmid = pmid.strip()
     assert pmid.isdigit(), f"pmid must be numeric: {pmid!r}"
 
-    sources: List[Source] = []
-    if allow_scihub:
-        sources.append(("scihub", lambda: scihub.download_pdf(pmid, save_path)))
+    sources: List[Source] = [("scihub", lambda: scihub.download_pdf(pmid, save_path))]
     pmcid = _resolve_pmcid(pmid)
     if pmcid:
         sources.append(("pmc", lambda: pmc.download_pdf(pmcid, save_path)))
@@ -153,11 +147,10 @@ def doi_read(
     semantic,
     openalex,
     scihub,
-    allow_scihub: bool,
 ) -> Dict:
     """Download a DOI PDF from the first source that serves it, then extract text."""
     return _read_from_download(
-        doi_download(doi, save_path, biorxiv, medrxiv, semantic, openalex, scihub, allow_scihub)
+        doi_download(doi, save_path, biorxiv, medrxiv, semantic, openalex, scihub)
     )
 
 
@@ -167,9 +160,8 @@ def pmid_read(
     semantic,
     pmc,
     scihub,
-    allow_scihub: bool,
 ) -> Dict:
     """Download a PMID PDF from the first source that serves it, then extract text."""
     return _read_from_download(
-        pmid_download(pmid, save_path, semantic, pmc, scihub, allow_scihub)
+        pmid_download(pmid, save_path, semantic, pmc, scihub)
     )

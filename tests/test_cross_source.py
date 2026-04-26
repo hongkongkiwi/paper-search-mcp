@@ -42,7 +42,6 @@ class DoiDownloadTests(unittest.TestCase):
             result = cross_source.doi_download(
                 "10.1101/2021.03.01.433208", tmp,
                 biorxiv, medrxiv, semantic, openalex, scihub,
-                allow_scihub=True,
             )
 
             self.assertEqual(result["source"], "scihub")
@@ -63,7 +62,6 @@ class DoiDownloadTests(unittest.TestCase):
             result = cross_source.doi_download(
                 "10.1101/2021.03.01.433208", tmp,
                 biorxiv, medrxiv, semantic, openalex, scihub,
-                allow_scihub=True,
             )
 
             self.assertEqual(result["source"], "biorxiv")
@@ -86,7 +84,6 @@ class DoiDownloadTests(unittest.TestCase):
             result = cross_source.doi_download(
                 "10.1038/nature12373", tmp,
                 biorxiv, medrxiv, semantic, openalex, scihub,
-                allow_scihub=True,
             )
 
             self.assertEqual(result["source"], "openalex")
@@ -109,33 +106,12 @@ class DoiDownloadTests(unittest.TestCase):
             result = cross_source.doi_download(
                 "10.1101/2021.01.01.000000", tmp,
                 biorxiv, medrxiv, semantic, openalex, scihub,
-                allow_scihub=True,
             )
 
             self.assertEqual(result["source"], "semantic")
             sources_tried = [a["source"] for a in result["attempts"]]
             self.assertEqual(sources_tried, ["scihub", "biorxiv", "medrxiv", "openalex", "semantic"])
             self.assertIn("medrxiv broke", result["attempts"][2]["error"])
-
-    def test_allow_scihub_false_omits_scihub(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            biorxiv = StubSearcher("Error: 404")
-            medrxiv = StubSearcher("Error: 404")
-            semantic = StubSearcher("Error: paywall")
-            openalex = MagicMock()
-            openalex.get_paper_by_doi.return_value = None
-            scihub = StubSearcher("should not be called")
-
-            result = cross_source.doi_download(
-                "10.1101/2021.01.01.000000", tmp,
-                biorxiv, medrxiv, semantic, openalex, scihub,
-                allow_scihub=False,
-            )
-
-            self.assertIn("error", result)
-            sources_tried = [a["source"] for a in result["attempts"]]
-            self.assertNotIn("scihub", sources_tried)
-            self.assertEqual(sources_tried, ["biorxiv", "medrxiv", "openalex", "semantic"])
 
     def test_openalex_uses_doi_lookup_then_download(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -153,7 +129,6 @@ class DoiDownloadTests(unittest.TestCase):
             result = cross_source.doi_download(
                 "10.1038/nature12373", tmp,
                 biorxiv, medrxiv, semantic, openalex, scihub,
-                allow_scihub=True,
             )
 
             self.assertEqual(result["source"], "openalex")
@@ -169,7 +144,6 @@ class DoiDownloadTests(unittest.TestCase):
                 "https://doi.org/10.1101/abc", tmp,
                 biorxiv, StubSearcher("x"), StubSearcher("x"),
                 MagicMock(), scihub,
-                allow_scihub=True,
             )
             self.assertEqual(biorxiv.calls[0][0], "10.1101/abc")
             self.assertEqual(scihub.calls[0][0], "10.1101/abc")
@@ -186,7 +160,7 @@ class PmidDownloadTests(unittest.TestCase):
 
             with patch.object(cross_source, "_resolve_pmcid", return_value="PMC2323736"):
                 result = cross_source.pmid_download(
-                    "19872477", tmp, semantic, pmc, scihub, allow_scihub=True,
+                    "19872477", tmp, semantic, pmc, scihub,
                 )
 
             self.assertEqual(result["source"], "scihub")
@@ -202,7 +176,7 @@ class PmidDownloadTests(unittest.TestCase):
 
             with patch.object(cross_source, "_resolve_pmcid", return_value="PMC2323736"):
                 result = cross_source.pmid_download(
-                    "19872477", tmp, semantic, pmc, scihub, allow_scihub=True,
+                    "19872477", tmp, semantic, pmc, scihub,
                 )
 
             self.assertEqual(result["source"], "pmc")
@@ -217,7 +191,7 @@ class PmidDownloadTests(unittest.TestCase):
 
             with patch.object(cross_source, "_resolve_pmcid", return_value="PMC1"):
                 result = cross_source.pmid_download(
-                    "19872477", tmp, semantic, pmc, scihub, allow_scihub=True,
+                    "19872477", tmp, semantic, pmc, scihub,
                 )
 
             self.assertEqual(result["source"], "semantic")
@@ -234,7 +208,7 @@ class PmidDownloadTests(unittest.TestCase):
 
             with patch.object(cross_source, "_resolve_pmcid", return_value=""):
                 result = cross_source.pmid_download(
-                    "19872477", tmp, semantic, pmc, scihub, allow_scihub=True,
+                    "19872477", tmp, semantic, pmc, scihub,
                 )
 
             sources_tried = [a["source"] for a in result["attempts"]]
@@ -247,7 +221,6 @@ class PmidDownloadTests(unittest.TestCase):
             cross_source.pmid_download(
                 "not-a-pmid", "/tmp",
                 StubSearcher("x"), StubSearcher("x"), StubSearcher("x"),
-                allow_scihub=True,
             )
 
     def test_all_fail_returns_error(self):
@@ -258,7 +231,7 @@ class PmidDownloadTests(unittest.TestCase):
 
             with patch.object(cross_source, "_resolve_pmcid", return_value="PMC1"):
                 result = cross_source.pmid_download(
-                    "19872477", tmp, semantic, pmc, scihub, allow_scihub=True,
+                    "19872477", tmp, semantic, pmc, scihub,
                 )
 
             self.assertIn("error", result)
@@ -279,7 +252,6 @@ class ReadTests(unittest.TestCase):
             result = cross_source.doi_read(
                 "10.1038/nope", tmp,
                 biorxiv, medrxiv, semantic, openalex, StubSearcher("x"),
-                allow_scihub=False,
             )
 
             self.assertIn("error", result)
@@ -296,7 +268,6 @@ class ReadTests(unittest.TestCase):
                     "10.1101/abc", tmp,
                     biorxiv, StubSearcher("x"), StubSearcher("x"),
                     MagicMock(), scihub,
-                    allow_scihub=True,
                 )
 
             self.assertEqual(result["text"], "hello world")
